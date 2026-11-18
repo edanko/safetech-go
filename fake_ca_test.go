@@ -407,7 +407,7 @@ func (f *fakeCA) serveIssue(w http.ResponseWriter, r *http.Request) {
 				NotBefore:    "2026-10-22T18:28:59.00000",
 				NotAfter:     "2027-10-22T18:28:59.00000",
 			},
-			CertificateRequest: reqPayload{ID: testRequestID, Status: "APPROVED"},
+			CertificateRequest: reqPayload{ID: testRequestID},
 		},
 	})
 }

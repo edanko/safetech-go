@@ -282,37 +282,30 @@ type issuePayload struct {
 }
 
 // reqPayload describes the certificate request created or accepted by the CA.
+// Only the id is used: the issue response identifies the request for later
+// revocation. The remaining fields of the wire object describe the request
+// itself and are not needed by this client.
 type reqPayload struct {
-	ID           string `json:"id"`
-	Type         string `json:"type"`
-	Status       string `json:"status"`
-	TemplateID   string `json:"templateId"`
-	Certificate  string `json:"certificate"`
-	DownloadFlag bool   `json:"downloadAvailable"`
+	ID string `json:"id"`
 }
 
-// certPayload is the certificate info object of the API.
+// certPayload is the certificate info object of the API, limited to the fields
+// this client maps onto [IssuedCertificate]. The CA returns more (subject and
+// issuer distinguished names, key usages, public key, signature algorithm and so
+// on); they are not decoded because nothing exposes them.
 type certPayload struct {
-	Status        string         `json:"status"`
-	SerialNumber  string         `json:"serialNumber"`
-	PEM           string         `json:"pem"`
-	Chain         string         `json:"chain"`
-	FullChain     string         `json:"fullchain"`
-	Root          string         `json:"root"`
-	NotBefore     string         `json:"notBefore"`
-	NotAfter      string         `json:"notAfter"`
-	RequestID     string         `json:"requestId"`
-	TemplateID    string         `json:"templateId"`
-	SubjectDn     map[string]any `json:"subjectDn"`
-	IssuerDn      map[string]any `json:"issuerDn"`
-	KeyUsages     []string       `json:"keyUsages"`
-	ExtendedKU    []string       `json:"extendedKeyUsages"`
-	IsCA          bool           `json:"isCA"`
-	SANsBase64    string         `json:"subjectAlternativeNames"`
-	PKCS7         string         `json:"pkcs7"`
-	DNHash        string         `json:"dnHash"`
-	SignatureAlgo string         `json:"signatureAlgo"`
-	PublicKey     string         `json:"publicKey"`
+	Status       string `json:"status"`
+	SerialNumber string `json:"serialNumber"`
+	PEM          string `json:"pem"`
+	Chain        string `json:"chain"`
+	FullChain    string `json:"fullchain"`
+	Root         string `json:"root"`
+	NotBefore    string `json:"notBefore"`
+	NotAfter     string `json:"notAfter"`
+	RequestID    string `json:"requestId"`
+	TemplateID   string `json:"templateId"`
+	PKCS7        string `json:"pkcs7"`
+	DNHash       string `json:"dnHash"`
 }
 
 // changeStatusRequest is the body of PATCH /certs/{serial}/change_status.
@@ -331,11 +324,10 @@ type searchRequest struct {
 
 // searchFilter is one filter of a certificate search.
 type searchFilter struct {
-	Key       string   `json:"key"`
-	FieldType string   `json:"fieldType"`
-	Operator  string   `json:"operator"`
-	Value     string   `json:"value,omitempty"`
-	Values    []string `json:"values,omitempty"`
+	Key       string `json:"key"`
+	FieldType string `json:"fieldType"`
+	Operator  string `json:"operator"`
+	Value     string `json:"value,omitempty"`
 }
 
 // searchSort is one sort of a certificate search.

@@ -34,7 +34,8 @@ runbook around it.
 2. **Protect `main`** (Settings → Branches → Add branch protection rule):
 
    - require a pull request and at least one approval
-   - require status checks: `Test (Go 1.27)`, `Test (Go stable)`, `Lint`
+   - require the status checks listed under
+     [Required status checks](CI.md#required-status-checks)
    - require branches to be up to date before merging
    - do not allow administrators to bypass
 

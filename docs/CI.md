@@ -39,35 +39,20 @@ job and the gosec upload are skipped for pull requests from forks.
 
 ## Releasing
 
-1. Merge everything intended for the release into `main`; CI must be green.
-2. Tag the commit and push the tag:
+Pushing a `v*` tag runs `release.yml`, which invokes
+`goreleaser release --clean`:
 
-   ```bash
-   git tag -a v0.1.0 -m "v0.1.0"
-   git push origin v0.1.0
-   ```
+- the changelog is grouped by Conventional Commit prefix (`feat:`, `fix:`,
+  `perf:`, `docs:`) and noise (`docs:`, `test:`, `ci:`, `chore:`, `style:`,
+  merges) is filtered out
+- `release.draft: false` publishes immediately, and `release.prerelease: auto`
+  marks tags such as `v0.2.0-rc.1` as pre-releases
+- nothing is compiled; the release is a GitHub Release, and consumers use
+  `go get github.com/edanko/safetech-go@vX.Y.Z`
+- the tag must be SemVer (`vMAJOR.MINOR.PATCH`), otherwise Go modules reject it
 
-3. `release.yml` runs `goreleaser release --clean`. The changelog is grouped by
-   Conventional Commit prefix (`feat:`, `fix:`, `perf:`, `docs:`), and noise
-   (`docs:`, `test:`, `ci:`, `chore:`, `style:`, merges) is filtered out.
-4. `release.draft: false` publishes immediately; `release.prerelease: auto`
-   marks tags such as `v0.2.0-rc.1` as pre-releases.
-5. Nothing is compiled: consumers use `go get github.com/edanko/safetech-go@vX.Y.Z`.
-   The tag must be SemVer (`vMAJOR.MINOR.PATCH`), otherwise Go modules reject it.
-
-## Repo settings checklist
-
-After pushing to GitHub (`github.com/edanko/safetech-go`):
-
-- [ ] Protect `main`: require a pull request, at least 1 approval, the three
-      status checks above, and up-to-date branches; disallow admin bypass.
-- [ ] Actions → Workflow permissions: "Read repository contents". Only
-      `release.yml` escalates (`contents: write`) and only on tag pushes.
-- [ ] Enable Dependabot alerts, plus secret scanning and push protection.
-- [ ] Install the **Renovate** GitHub App (`renovate.json` drives it: weekly
-      window in `Europe/Moscow`, grouped Go + Actions PRs, digest-pinned actions,
-      patch/digest automerge only after all checks pass).
-- [ ] Do not add `CODECOV_TOKEN` or any other secret; none is referenced.
+The release procedure itself — merge, tag, push, verify — is in
+[OPERATIONS.md](OPERATIONS.md#first-release).
 
 ## Dependencies
 

@@ -244,10 +244,11 @@ for _, tmpl := range templates {
 
 Each `CertificateTemplate` carries `ID`, `Name`, `Description`, `OID`,
 `ProtocolType`, `MaxValidityPeriod` (days), `MinKeySize` (bits), `KeyUsages`
-(bitmask) and `Context`. `Context.STCAEnrollment` exposes what constrains an
-ST_CA request: `EnrollmentScenario`, `CryptoTypes`, `KeySizes`,
-`SignatureAlgorithms`, `RequiredSubjectAlternativeNames`, `IncludeSID` and
-`SupportedToken`.
+(bitmask) and `Context`, a `TemplateContext`. Its `STCAEnrollment`
+(`STCAEnrollmentContext`) exposes what constrains an ST_CA request:
+`EnrollmentScenario`, `CryptoTypes`, `KeySizes`, `SignatureAlgorithms`,
+`RequiredSubjectAlternativeNames`, `IncludeSID` and `SupportedToken`. Its
+`Common` (`CommonContext`) carries the protocol-independent flags.
 
 Two rules the CA enforces, which the list lets you check before issuing:
 
