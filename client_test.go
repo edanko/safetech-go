@@ -2,6 +2,7 @@ package safetech
 
 import (
 	"bytes"
+	"crypto/x509"
 	"encoding/json"
 	"encoding/pem"
 	"errors"
@@ -760,4 +761,111 @@ func TestListTemplatesErrors(t *testing.T) {
 			t.Errorf("StatusCode = %d, want 500", httpErr.StatusCode)
 		}
 	})
+}
+
+func TestIssuedCertificateChainMaterial(t *testing.T) {
+	t.Parallel()
+
+	f := newFakeCA(t)
+
+	cert, err := f.newClient(t).CreateCertificate(
+		t.Context(), testutil.CSR(t, "device.example.com"), testTemplate,
+	)
+	if err != nil {
+		t.Fatalf("CreateCertificate: %v", err)
+	}
+
+	if len(cert.Chain) == 0 {
+		t.Error("Chain is empty")
+	}
+
+	if len(cert.FullChain) == 0 {
+		t.Error("FullChain is empty")
+	}
+
+	if len(cert.Root) == 0 {
+		t.Error("Root is empty")
+	}
+
+	if len(cert.PKCS7) == 0 {
+		t.Error("PKCS7 is empty")
+	}
+
+	if cert.DNHash != f.fixtureDNHash() {
+		t.Errorf("DNHash = %q, want the fixture hash", cert.DNHash)
+	}
+
+	// FullChain is the leaf followed by its chain, so it starts with PEM.
+	if !bytes.HasPrefix(cert.FullChain, cert.PEM) {
+		t.Error("FullChain does not start with the leaf certificate")
+	}
+
+	for name, material := range map[string][]byte{
+		"Chain":     cert.Chain,
+		"Root":      cert.Root,
+		"FullChain": cert.FullChain,
+	} {
+		block, _ := pem.Decode(material)
+		if block == nil {
+			t.Errorf("%s is not PEM-encoded", name)
+
+			continue
+		}
+
+		if _, err := x509.ParseCertificate(block.Bytes); err != nil {
+			t.Errorf("%s does not parse as a certificate: %v", name, err)
+		}
+	}
+
+	rootBlock, _ := pem.Decode(cert.Root)
+	if rootBlock == nil {
+		t.Fatal("Root is not PEM-encoded")
+	}
+
+	root, err := x509.ParseCertificate(rootBlock.Bytes)
+	if err != nil {
+		t.Fatalf("parse Root: %v", err)
+	}
+
+	if got := root.Subject.CommonName; got != "root.example.com" {
+		t.Errorf("Root common name = %q, want root.example.com", got)
+	}
+}
+
+func TestIssuedCertificateWithoutChainMaterial(t *testing.T) {
+	t.Parallel()
+
+	f := newFakeCA(t)
+
+	// A CA that answers with the leaf certificate only must not produce an
+	// error: the optional material stays nil.
+	f.setHandler(apiPath(pathIssue), func(w http.ResponseWriter, _ *http.Request) {
+		writeJSON(w, http.StatusOK, map[string]any{
+			"errorCode": 0,
+			"payload": issuePayload{
+				CertificateInfo: certPayload{
+					Status:       statusActive,
+					SerialNumber: testSerial,
+					PEM:          string(testutil.Certificate(t, "leaf.example.com")),
+				},
+				CertificateRequest: reqPayload{ID: testRequestID},
+			},
+		})
+	})
+
+	cert, err := f.newClient(t).CreateCertificate(
+		t.Context(), testutil.CSR(t, "device.example.com"), testTemplate,
+	)
+	if err != nil {
+		t.Fatalf("CreateCertificate: %v", err)
+	}
+
+	if cert.Chain != nil || cert.FullChain != nil || cert.Root != nil || cert.PKCS7 != nil {
+		t.Errorf("optional material = %q/%q/%q/%q, want nil",
+			cert.Chain, cert.FullChain, cert.Root, cert.PKCS7)
+	}
+
+	if cert.DNHash != "" {
+		t.Errorf("DNHash = %q, want empty", cert.DNHash)
+	}
 }

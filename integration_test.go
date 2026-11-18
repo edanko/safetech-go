@@ -3,6 +3,9 @@
 package safetech_test
 
 import (
+	"bytes"
+	"crypto/x509"
+	"encoding/pem"
 	"os"
 	"strings"
 	"testing"
@@ -176,6 +179,26 @@ func TestIntegrationIssueAndRevoke(t *testing.T) {
 	if _, err := cert.ParsePEM(); err != nil {
 		t.Errorf("ParsePEM: %v", err)
 	}
+
+	// The leaf is always part of the full chain; the remaining material is
+	// optional and depends on how the CA is installed.
+	if len(cert.FullChain) == 0 {
+		t.Error("expected FullChain in the issue response")
+	} else if !bytes.HasPrefix(cert.FullChain, cert.PEM) {
+		t.Error("FullChain does not start with the leaf certificate")
+	}
+
+	if len(cert.Root) > 0 {
+		block, _ := pem.Decode(cert.Root)
+		if block == nil {
+			t.Error("Root is not PEM-encoded")
+		} else if _, err := x509.ParseCertificate(block.Bytes); err != nil {
+			t.Errorf("Root does not parse: %v", err)
+		}
+	}
+
+	t.Logf("chain: chain=%dB fullchain=%dB root=%dB pkcs7=%dB dnHash=%q",
+		len(cert.Chain), len(cert.FullChain), len(cert.Root), len(cert.PKCS7), cert.DNHash)
 
 	if err := client.RevokeCertificate(t.Context(), cert.ID); err != nil {
 		t.Fatalf("RevokeCertificate: %v", err)

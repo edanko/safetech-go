@@ -309,6 +309,8 @@ type certPayload struct {
 	ExtendedKU    []string       `json:"extendedKeyUsages"`
 	IsCA          bool           `json:"isCA"`
 	SANsBase64    string         `json:"subjectAlternativeNames"`
+	PKCS7         string         `json:"pkcs7"`
+	DNHash        string         `json:"dnHash"`
 	SignatureAlgo string         `json:"signatureAlgo"`
 	PublicKey     string         `json:"publicKey"`
 }

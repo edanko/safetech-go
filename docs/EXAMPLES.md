@@ -60,6 +60,32 @@ if err != nil {
 }
 ```
 
+## Write the certificate and chain for a TLS server
+
+```go
+cert, err := client.CreateCertificate(ctx, csrPEM, templateName)
+if err != nil {
+	return err
+}
+
+// FullChain contains the leaf followed by its chain, which is what TLS
+// servers present; Root is what clients add to their trust store.
+if err := os.WriteFile("fullchain.pem", cert.FullChain, 0o600); err != nil {
+	return err
+}
+
+if err := os.WriteFile("root.pem", cert.Root, 0o644); err != nil {
+	return err
+}
+
+// Chain is nil when the CA issued directly from the root.
+if len(cert.Chain) > 0 {
+	if err := os.WriteFile("chain.pem", cert.Chain, 0o644); err != nil {
+		return err
+	}
+}
+```
+
 ## Revoke a certificate with an explicit reason
 
 ```go

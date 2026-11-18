@@ -40,17 +40,22 @@ type recordedRequest struct {
 type fakeCA struct {
 	server *httptest.Server
 
-	mu            sync.Mutex
-	requests      []recordedRequest
-	forms         []url.Values
-	handlers      map[string]http.HandlerFunc
-	expiresIn     int
-	rejectRefresh bool
-	searchContent []certPayload
-	searchTotal   int
-	revokedStatus string
-	issuePEM      string
-	templates     []templatePayload
+	mu             sync.Mutex
+	requests       []recordedRequest
+	forms          []url.Values
+	handlers       map[string]http.HandlerFunc
+	expiresIn      int
+	rejectRefresh  bool
+	searchContent  []certPayload
+	searchTotal    int
+	revokedStatus  string
+	issuePEM       string
+	issueChain     string
+	issueFullChain string
+	issueRoot      string
+	issuePKCS7     string
+	issueDNHash    string
+	templates      []templatePayload
 }
 
 // newFakeCA starts a fake CA over plain HTTP.
@@ -65,14 +70,24 @@ func newFakeCA(t *testing.T) *fakeCA {
 func newFakeCAWithTLS(t *testing.T, useTLS bool) *fakeCA {
 	t.Helper()
 
+	// One leaf and one chain certificate, so that FullChain is exactly the
+	// leaf followed by the chain, as the CA returns it.
+	leafPEM := string(testutil.Certificate(t, "issued.example.com"))
+	chainPEM := string(testutil.Certificate(t, "chain.example.com"))
+
 	f := &fakeCA{
-		handlers:      make(map[string]http.HandlerFunc),
-		expiresIn:     3600,
-		searchContent: []certPayload{{Status: statusActive, SerialNumber: testSerial}},
-		searchTotal:   1,
-		revokedStatus: statusRevoked,
-		issuePEM:      string(testutil.Certificate(t, "issued.example.com")),
-		templates:     templateFixtures(),
+		handlers:       make(map[string]http.HandlerFunc),
+		expiresIn:      3600,
+		searchContent:  []certPayload{{Status: statusActive, SerialNumber: testSerial}},
+		searchTotal:    1,
+		revokedStatus:  statusRevoked,
+		issuePEM:       leafPEM,
+		issueChain:     chainPEM,
+		issueFullChain: leafPEM + chainPEM,
+		issueRoot:      string(testutil.Certificate(t, "root.example.com")),
+		issuePKCS7:     "-----BEGIN PKCS7-----\nMIIB\n-----END PKCS7-----\n",
+		issueDNHash:    "34d96d7243fa893d303396624d32a3d89d3b52a7c3110cc09cc6f4b849049b59",
+		templates:      templateFixtures(),
 	}
 
 	mux := http.NewServeMux()
@@ -187,6 +202,14 @@ func (f *fakeCA) record(next http.Handler) http.Handler {
 
 		next.ServeHTTP(w, r)
 	})
+}
+
+// fixtureDNHash returns the DN hash the fake CA attaches to issued certificates.
+func (f *fakeCA) fixtureDNHash() string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	return f.issueDNHash
 }
 
 // requestsTo returns the recorded requests whose path matches exactly.
@@ -348,7 +371,7 @@ func (f *fakeCA) serveIssue(w http.ResponseWriter, r *http.Request) {
 	}
 
 	f.mu.Lock()
-	pemText := f.issuePEM
+	pemText, chain, fullChain, root, pkcs7, dnHash := f.issuePEM, f.issueChain, f.issueFullChain, f.issueRoot, f.issuePKCS7, f.issueDNHash
 	f.mu.Unlock()
 
 	writeJSON(w, http.StatusOK, map[string]any{
@@ -359,6 +382,11 @@ func (f *fakeCA) serveIssue(w http.ResponseWriter, r *http.Request) {
 				Status:       statusActive,
 				SerialNumber: testSerial,
 				PEM:          pemText,
+				Chain:        chain,
+				FullChain:    fullChain,
+				Root:         root,
+				PKCS7:        pkcs7,
+				DNHash:       dnHash,
 				NotBefore:    "2026-10-22T18:28:59.00000",
 				NotAfter:     "2027-10-22T18:28:59.00000",
 			},

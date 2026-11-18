@@ -105,8 +105,29 @@ func main() {
 ```
 
 `IssuedCertificate` carries `ID` (pass it to `RevokeCertificate` later),
-`SerialNumber`, `PEM`, `TemplateName`, `Status`, `NotBefore` and `NotAfter`.
-Call `ParsePEM` to decode the issued certificate into an `*x509.Certificate`.
+`SerialNumber`, `PEM`, `TemplateName`, `Status`, `NotBefore` and `NotAfter`, plus
+the chain material the CA returns alongside the leaf:
+
+| Field | Contents |
+| --- | --- |
+| `PEM` | The leaf certificate. `ParsePEM` decodes it into an `*x509.Certificate`. |
+| `Chain` | The issuing chain in PEM, without the leaf. `nil` when the CA issued directly from the root. |
+| `FullChain` | The leaf followed by its chain, ready for a TLS server. |
+| `Root` | The root CA certificate in PEM, ready for a trust store. |
+| `PKCS7` | The certificate and its chain as a PEM `PKCS#7` (CMS SignedData) bundle. |
+| `DNHash` | The CA-side hash of the subject distinguished name, in hex. |
+
+Every optional field is `nil` (or empty) when the CA did not return it, so no
+extra error path is needed. To install the result:
+
+```go
+os.WriteFile("cert.pem", cert.PEM, 0o600)
+os.WriteFile("fullchain.pem", cert.FullChain, 0o600)
+os.WriteFile("root.pem", cert.Root, 0o644) // trust store
+```
+
+On an installation that issues straight from the root CA, `Chain` is `nil` and
+`FullChain` equals `PEM`.
 
 `New` validates the configuration and performs no network I/O; authentication
 happens lazily on the first operation. The client holds no resources that need

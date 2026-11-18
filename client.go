@@ -490,6 +490,15 @@ func hasStatus(certs []certPayload, status string) bool {
 	})
 }
 
+// pemBytes returns PEM text as bytes, or nil when the CA did not return it.
+func pemBytes(value string) []byte {
+	if strings.TrimSpace(value) == "" {
+		return nil
+	}
+
+	return []byte(value)
+}
+
 // certFromIssue converts an issue response into a domain certificate.
 func certFromIssue(payload issuePayload, templateName string) (*IssuedCertificate, error) {
 	info := payload.CertificateInfo
@@ -507,6 +516,11 @@ func certFromIssue(payload issuePayload, templateName string) (*IssuedCertificat
 		ID:           requestID,
 		SerialNumber: info.SerialNumber,
 		PEM:          []byte(info.PEM),
+		Chain:        pemBytes(info.Chain),
+		FullChain:    pemBytes(info.FullChain),
+		Root:         pemBytes(info.Root),
+		PKCS7:        pemBytes(info.PKCS7),
+		DNHash:       strings.TrimSpace(info.DNHash),
 		TemplateName: templateName,
 		Status:       info.Status,
 	}

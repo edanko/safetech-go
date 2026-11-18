@@ -21,9 +21,23 @@ type IssuedCertificate struct {
 	// SerialNumber is the serial number assigned by the CA, in the
 	// encoding used by the ca-core API.
 	SerialNumber string
-	// PEM is the issued certificate in PEM encoding, as returned by the
-	// CA.
+	// PEM is the issued leaf certificate in PEM encoding.
 	PEM []byte
+	// Chain is the issuing chain in PEM encoding, without the leaf. It is
+	// nil when the CA issued the certificate directly from the root.
+	Chain []byte
+	// FullChain is the leaf certificate followed by its chain, in PEM
+	// encoding. It is what a TLS server hands to clients.
+	FullChain []byte
+	// Root is the root CA certificate in PEM encoding, suitable for adding
+	// to a trust store.
+	Root []byte
+	// PKCS7 is the certificate together with its chain as a PEM-encoded
+	// PKCS#7 (CMS SignedData) bundle.
+	PKCS7 []byte
+	// DNHash is the CA-side hash of the certificate distinguished name, in
+	// hexadecimal. The CA uses it to group certificates per subject.
+	DNHash string
 	// TemplateName is the CA template the certificate was issued from.
 	TemplateName string
 	// Status is the certificate status reported by the CA, for example

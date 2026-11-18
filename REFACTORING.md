@@ -76,4 +76,4 @@ the test suite now mirrors:
 | `ST_CA` issuance requires a template whose `enrollmentScenario` is `STANDARD`. | `API_ONLY`/`TOKEN_BASED` templates are rejected with `errorCode` 101 and "for protocol type 'ST_CA' enrollmentScenario must be 'STANDARD'". |
 | An already revoked certificate is reported, not silently accepted. | Second `RevokeCertificate` returns `ErrCertificateRevoked`. |
 | `certificateRequest.certificate` carries the serial number, not a certificate. | Returned `"03e2"` for a successful issuance while `certificateInfo.pem` held the PEM. |
-| `certificateInfo` also carries `fullchain`, `root`, `pkcs7` and `dnHash`. | Observed in the issue response; the client surfaces `pem` only, see the decision above. |
+| `certificateInfo` also carries `fullchain`, `root`, `pkcs7` and `dnHash`. | All surfaced on `IssuedCertificate`. On the test installation `Chain` was `nil` (issued straight from the root), `FullChain` was the leaf alone, `Root` was the self-signed `ST CA Root` valid to 2046, `PKCS7` was a 6.8 kB PEM bundle and `DNHash` was 64 hex characters. |
