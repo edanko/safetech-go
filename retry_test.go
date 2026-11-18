@@ -2,8 +2,12 @@ package safetech
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"errors"
+	"net"
 	"net/http"
+	"net/url"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -137,6 +141,30 @@ func TestIsRetryable(t *testing.T) {
 		"bad gateway":           {err: &HTTPError{StatusCode: http.StatusBadGateway}, want: true},
 		"context canceled":      {err: context.Canceled, want: false},
 		"deadline exceeded":     {err: context.DeadlineExceeded, want: false},
+
+		// A certificate the client does not trust cannot become trusted on a
+		// retry, so the misconfiguration is reported immediately.
+		"certificate verification": {
+			err: &tls.CertificateVerificationError{
+				Err: x509.UnknownAuthorityError{},
+			},
+			want: false,
+		},
+		"unknown authority": {err: x509.UnknownAuthorityError{}, want: false},
+		"hostname mismatch": {
+			err:  x509.HostnameError{Certificate: &x509.Certificate{}, Host: "ca.example.com"},
+			want: false,
+		},
+		"invalid certificate": {
+			err:  x509.CertificateInvalidError{Cert: &x509.Certificate{}, Reason: x509.Expired},
+			want: false,
+		},
+
+		// A wrapped network failure is still worth another attempt.
+		"wrapped network error": {
+			err:  &url.Error{Op: "Get", URL: "https://ca.example.com", Err: &net.OpError{Op: "dial", Err: errors.New("refused")}},
+			want: true,
+		},
 	}
 
 	for name, test := range tests {

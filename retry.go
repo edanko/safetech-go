@@ -3,6 +3,8 @@ package safetech
 import (
 	"cmp"
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"errors"
 	"fmt"
 	"net"
@@ -127,6 +129,24 @@ func retryAfterHint(err error) time.Duration {
 // or a response the server itself marks as transient.
 func isRetryable(err error) bool {
 	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return false
+	}
+
+	// A certificate the client does not trust will not become trusted by
+	// retrying, so report the misconfiguration immediately.
+	if _, ok := errors.AsType[*tls.CertificateVerificationError](err); ok {
+		return false
+	}
+
+	if _, ok := errors.AsType[x509.UnknownAuthorityError](err); ok {
+		return false
+	}
+
+	if _, ok := errors.AsType[x509.HostnameError](err); ok {
+		return false
+	}
+
+	if _, ok := errors.AsType[x509.CertificateInvalidError](err); ok {
 		return false
 	}
 

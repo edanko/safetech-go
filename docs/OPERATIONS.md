@@ -84,8 +84,12 @@ Before a service depends on this module in production:
   for the `ca-gateway` client rather than the public `ca-ui` one the web UI uses.
   The vendor documentation authenticates this way, and it is what `CA CLI`
   prompts for.
-- **Never set `TLSSkipVerify`.** It exists for throwaway test installations. For
-  the private CA, pass an `HTTPClient` whose transport trusts the right roots.
+- **Configure `RootCAs`, never `TLSSkipVerify`.** The CA signs its own web
+  endpoints with its own root, so the host does not trust it by default. Ship the
+  root certificate with the service (from the installer or your secret store) and
+  set `Config.RootCAs` — see [TLS trust](../README.md#tls-trust). Never fetch the
+  root over the connection you are trying to verify, and remember that setting
+  the field replaces the system trust store for that client.
 - **Give every call a context** with a deadline. The client's default HTTP
   timeout is 60s, which is fine for a request but should not bound your whole
   operation.
@@ -111,6 +115,7 @@ Before a service depends on this module in production:
 | When the Security tab turns red | Triage gosec/CodeQL findings. `gosec` runs with `-no-fail` on purpose, so nothing blocks a merge; the SARIF results are the signal |
 | When a test fails on the coverage floor | The floor is 90% and the package sits around 96%; a drop means new code arrived without tests |
 | On your credential policy | Rotate the CA service-account password and the Keycloak client secret |
+| When the CA root is reissued | Deploy the new root certificate alongside the old one and add both to `Config.RootCAs` before the CA switches, so connections survive the change |
 
 ## Known gaps
 

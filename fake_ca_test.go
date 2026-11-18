@@ -2,6 +2,7 @@ package safetech
 
 import (
 	"bytes"
+	"crypto/tls"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -71,6 +72,43 @@ func newFakeCA(t *testing.T) *fakeCA {
 func newFakeCAWithTLS(t *testing.T, useTLS bool) *fakeCA {
 	t.Helper()
 
+	f, mux := buildFakeCA(t)
+
+	if useTLS {
+		f.server = httptest.NewTLSServer(f.record(mux))
+	} else {
+		f.server = httptest.NewServer(f.record(mux))
+	}
+
+	t.Cleanup(f.server.Close)
+
+	return f
+}
+
+// newFakeCAWithCertificate starts a fake CA over TLS using the given server
+// certificate, so a test can verify the client against a private CA.
+func newFakeCAWithCertificate(t *testing.T, certificate tls.Certificate) *fakeCA {
+	t.Helper()
+
+	f, mux := buildFakeCA(t)
+
+	server := httptest.NewUnstartedServer(f.record(mux))
+	server.TLS = &tls.Config{
+		Certificates: []tls.Certificate{certificate},
+		MinVersion:   tls.VersionTLS12,
+	}
+	server.StartTLS()
+
+	f.server = server
+	t.Cleanup(f.server.Close)
+
+	return f
+}
+
+// buildFakeCA returns a fake CA with its routes registered, without a server.
+func buildFakeCA(t *testing.T) (*fakeCA, *http.ServeMux) {
+	t.Helper()
+
 	// One leaf and one chain certificate, so that FullChain is exactly the
 	// leaf followed by the chain, as the CA returns it.
 	leafPEM := string(testutil.Certificate(t, "issued.example.com"))
@@ -117,15 +155,7 @@ func newFakeCAWithTLS(t *testing.T, useTLS bool) *fakeCA {
 		mux.HandleFunc(prefix+pathTemplates, f.serveTemplates)
 	}
 
-	if useTLS {
-		f.server = httptest.NewTLSServer(f.record(mux))
-	} else {
-		f.server = httptest.NewServer(f.record(mux))
-	}
-
-	t.Cleanup(f.server.Close)
-
-	return f
+	return f, mux
 }
 
 // newClient returns a Client pointed at the fake CA.

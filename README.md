@@ -159,8 +159,9 @@ to be closed. More recipes are in [docs/EXAMPLES.md](docs/EXAMPLES.md).
 | `Password` | required | Password for the password grant. |
 | `EurekaNode` | `ST CA Root` | CA node identity, sent as the `x-eureka-node` header. |
 | `RevokeReason` | `RevokeReasonUnspecified` | Revocation reason used by `RevokeCertificate`. |
+| `RootCAs` | system store | Trust store used to verify the CA and Keycloak TLS certificates. See [TLS trust](#tls-trust). |
 | `TLSSkipVerify` | `false` | Disables server certificate verification. Test environments only; see [Security notes](#security-notes). |
-| `HTTPClient` | `nil` (internal default) | Optional custom `*http.Client`. When `TLSSkipVerify` is set, the custom transport must be an `*http.Transport`. |
+| `HTTPClient` | `nil` (internal default) | Optional custom `*http.Client`. When `RootCAs` or `TLSSkipVerify` is set, the custom transport must be an `*http.Transport`. |
 | `UserAgent` | `safetech/<Version>` | `User-Agent` header sent to the API. |
 | `Retry` | 3 attempts, 200ms backoff, 5s cap | Retry policy for idempotent requests. See [Retries](#retries). |
 | `APIBaseURL` | empty | Full base URL of the `ca-core` API, for example `http://ca-core.example.com:8081/api/v1`. Set it to bypass the gateway; `BaseURL` is then ignored and `AuthURL` becomes required. |
@@ -311,11 +312,74 @@ if err := client.RevokeCertificate(ctx, cert.ID); err != nil {
 Everything is populated as at issuance except `TemplateName`: the CA reports only
 the template id for certificates that are read back, so use `TemplateID` there.
 
+## TLS trust
+
+A SafeTech CA installation signs its own web endpoints with its own root: the
+`ca-core` gateway on port 7443 and Keycloak on port 8443 both present
+certificates issued by the CA root. Your host almost certainly does not trust
+that root, which is what makes `TLSSkipVerify` tempting. Configure trust
+instead: set `Config.RootCAs` to a pool containing the root certificate.
+
+The root has to come from somewhere you already trust — the installer output, a
+configuration-management repository, or a secret store:
+
+```go
+// rootPEM holds the CA root certificate obtained out of band.
+pool, err := safetech.RootCAsFromPEM(rootPEM)
+if err != nil {
+	return err
+}
+
+client, err := safetech.New(safetech.Config{
+	BaseURL:  "https://ca.example.com:7443",
+	Username: username,
+	Password: password,
+	RootCAs:  pool, // verification stays on
+})
+```
+
+Do **not** download the root from the server you are trying to authenticate: an
+attacker in the middle would serve its own root, and every later connection
+would validate against it. Verification would be formally on and practically
+useless.
+
+Two details worth knowing:
+
+- The gateway serves only the leaf certificate, not its chain, so a client that
+  trusts "whatever the server sent" cannot verify it. The root is genuinely
+  required.
+- Setting `RootCAs` replaces the system trust store for that client. To keep the
+  public roots as well, start from `x509.SystemCertPool()` and append:
+
+  ```go
+  pool, err := x509.SystemCertPool()
+  if err != nil {
+  	return err
+  }
+
+  if !pool.AppendCertsFromPEM(rootPEM) {
+  	return errors.New("no certificate found in rootPEM")
+  }
+  ```
+
+An issued certificate carries the same root as `IssuedCertificate.Root`, which is
+a convenient way to distribute the anchor to other hosts — but only after a
+connection you already trust, never as the first step.
+
+Trusting this root also means trusting everything the CA issues. If a host can
+obtain a certificate for the CA's own hostname from the same CA, it could
+impersonate the gateway; constrain which templates may issue such certificates,
+or pin the expected leaf where that matters.
+
+Certificate verification failures are not retried: a trust store without the root
+will not contain it on the second attempt either, so the error is reported
+immediately.
+
 ## Security notes
 
 - `TLSSkipVerify` disables TLS certificate verification. Use it only against
-  throwaway test installations, never in production. For a private CA, prefer a
-  custom `HTTPClient` with the correct root certificates instead.
+  throwaway test installations, never in production; configure `RootCAs`
+  instead, as described in [TLS trust](#tls-trust).
 - Keep `Username`, `Password` and `ClientSecret` in environment variables or a
   secrets manager. Never commit them or embed them in source, tests or
   documentation.

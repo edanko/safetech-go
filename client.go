@@ -83,9 +83,32 @@ type Config struct {
 	// RevokeReason is the revocation reason used by
 	// [Client.RevokeCertificate]. It defaults to RevokeReasonUnspecified.
 	RevokeReason RevokeReason
+	// RootCAs sets the trust store used to verify the TLS certificates of the
+	// CA and of Keycloak. When nil, the host's system store is used.
+	//
+	// A SafeTech CA installation signs its own web endpoints with its root, so a
+	// client that does not already trust that root sets this field. The trust
+	// anchor has to come from somewhere trustworthy — the installer output, your
+	// configuration management, or a secret store. Do not download it from the
+	// server you are trying to authenticate: an attacker in the middle would
+	// simply serve its own root and every later connection would validate.
+	//
+	// Setting this field replaces the system trust store for this client's
+	// connections. To keep the system roots and add the CA, start from
+	// x509.SystemCertPool and append the certificate to it.
+	//
+	// [RootCAsFromPEM] builds a pool from PEM data. It cannot be combined with
+	// TLSSkipVerify.
+	//
+	// Trusting this root also means trusting every certificate the CA issues, so
+	// a host that can obtain a certificate for the CA's own hostname from the
+	// same CA could impersonate it; constrain the templates that may issue such
+	// certificates, or pin the expected leaf where that matters.
+	RootCAs *x509.CertPool
 	// TLSSkipVerify disables verification of the server TLS certificate.
-	// Use it only in test environments. It cannot be combined with an
-	// [Config.HTTPClient] whose transport is not an *http.Transport.
+	// Use it only in test environments. It cannot be combined with
+	// [Config.RootCAs] or with an [Config.HTTPClient] whose transport is not an
+	// *http.Transport.
 	TLSSkipVerify bool
 	// HTTPClient optionally provides a custom HTTP client. Its transport is
 	// cloned, not modified, when TLSSkipVerify is set.
@@ -188,6 +211,13 @@ func New(cfg Config) (*Client, error) {
 		return nil, err
 	}
 
+	if cfg.RootCAs != nil && cfg.TLSSkipVerify {
+		return nil, errors.New(
+			"safetech: Config.RootCAs cannot be combined with Config.TLSSkipVerify: " +
+				"a trust store has no effect when verification is disabled",
+		)
+	}
+
 	httpClient, err := buildHTTPClient(cfg)
 	if err != nil {
 		return nil, err
@@ -257,20 +287,20 @@ func validateBaseURL(field, value string) error {
 	return nil
 }
 
-// buildHTTPClient returns the HTTP client used for all requests, applying
-// TLSSkipVerify without mutating the caller's client.
+// buildHTTPClient returns the HTTP client used for all requests, applying the
+// configured TLS settings without mutating the caller's client.
 func buildHTTPClient(cfg Config) (*http.Client, error) {
 	client := cfg.HTTPClient
 	if client == nil {
 		client = &http.Client{Timeout: defaultHTTPTimeout}
 	}
 
-	if !cfg.TLSSkipVerify {
+	if !cfg.TLSSkipVerify && cfg.RootCAs == nil {
 		return client, nil
 	}
 
-	// Copy the client struct before customising it: the caller's value is
-	// left untouched.
+	// Copy the client struct before customising it: the caller's value is left
+	// untouched.
 	clone := *client
 
 	switch transport := clone.Transport.(type) {
@@ -281,15 +311,15 @@ func buildHTTPClient(cfg Config) (*http.Client, error) {
 		}
 
 		t := defaultTransport.Clone()
-		t.TLSClientConfig = insecureTLSConfig(nil)
+		t.TLSClientConfig = tlsConfig(t.TLSClientConfig, cfg)
 		clone.Transport = t
 	case *http.Transport:
 		t := transport.Clone()
-		t.TLSClientConfig = insecureTLSConfig(transport.TLSClientConfig)
+		t.TLSClientConfig = tlsConfig(transport.TLSClientConfig, cfg)
 		clone.Transport = t
 	default:
 		return nil, fmt.Errorf(
-			"safetech: Config.TLSSkipVerify cannot be applied to custom transport %T; configure TLS on it instead",
+			"safetech: TLS settings cannot be applied to custom transport %T; configure TLS on it instead",
 			clone.Transport,
 		)
 	}
@@ -297,21 +327,67 @@ func buildHTTPClient(cfg Config) (*http.Client, error) {
 	return &clone, nil
 }
 
-// insecureTLSConfig returns a clone of base with certificate verification
-// disabled. The caller opted in by setting Config.TLSSkipVerify.
-func insecureTLSConfig(base *tls.Config) *tls.Config {
-	var cfg *tls.Config
+// tlsConfig returns a clone of base carrying the client's TLS settings.
+func tlsConfig(base *tls.Config, cfg Config) *tls.Config {
+	var out *tls.Config
 	if base != nil {
-		cfg = base.Clone()
+		out = base.Clone()
 	} else {
-		cfg = &tls.Config{MinVersion: tls.VersionTLS12}
+		out = &tls.Config{MinVersion: tls.VersionTLS12}
 	}
 
-	// Config.TLSSkipVerify is an explicit, documented opt-in, which is why the
-	// insecure setting is annotated for gosec instead of being enabled silently.
-	cfg.InsecureSkipVerify = true // #nosec G402 -- explicit opt-in via Config.TLSSkipVerify
+	if cfg.RootCAs != nil {
+		out.RootCAs = cfg.RootCAs
+	}
 
-	return cfg
+	if cfg.TLSSkipVerify {
+		// Config.TLSSkipVerify is an explicit, documented opt-in, which is why
+		// the insecure setting is annotated for gosec instead of being enabled
+		// silently.
+		out.InsecureSkipVerify = true // #nosec G402 -- explicit opt-in via Config.TLSSkipVerify
+	}
+
+	return out
+}
+
+// RootCAsFromPEM returns a trust store holding the certificates in pemData.
+//
+// It is a convenience for [Config.RootCAs] that reports malformed input instead
+// of silently trusting nothing, which is what x509.CertPool.AppendCertsFromPEM
+// does when given garbage.
+func RootCAsFromPEM(pemData []byte) (*x509.CertPool, error) {
+	pool := x509.NewCertPool()
+
+	rest := pemData
+	certificates := 0
+
+	for {
+		var block *pem.Block
+
+		block, rest = pem.Decode(rest)
+		if block == nil {
+			break
+		}
+
+		if block.Type != "CERTIFICATE" {
+			continue
+		}
+
+		cert, err := x509.ParseCertificate(block.Bytes)
+		if err != nil {
+			return nil, fmt.Errorf("safetech: parse root certificate: %w", err)
+		}
+
+		pool.AddCert(cert)
+
+		certificates++
+	}
+
+	if certificates == 0 {
+		return nil, errors.New("safetech: no certificate found in the PEM data")
+	}
+
+	return pool, nil
 }
 
 // CreateCertificate issues a certificate from a PEM-encoded PKCS#10 request

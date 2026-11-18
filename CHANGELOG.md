@@ -74,6 +74,20 @@ First public release.
   its configuration from `STCA_BASE_URL`, `STCA_REALM_URL`, `STCA_USERNAME` and
   `STCA_PASSWORD`.
 
+### Changed
+
+- TLS verification failures are no longer retried. A trust store that does not
+  contain the CA root will not contain it on the next attempt, so the error is
+  returned immediately instead of after three attempts with backoff.
+
+### Added
+
+- `Config.RootCAs` and `RootCAsFromPEM` for trusting a private CA, which is what
+  a SafeTech CA installation needs: it signs its own gateway and Keycloak
+  certificates with its own root.
+- `Config.RootCAs` cannot be combined with `TLSSkipVerify`; the combination is
+  rejected instead of silently ignoring the trust store.
+
 ### Changed (tooling)
 
 - CI enforces a 90% statement-coverage floor on the library package; it is
