@@ -21,7 +21,7 @@ First public release.
   revocation.
 - `New` constructor that validates the configuration and performs no network
   I/O until the first operation.
-- `UserCertificate` carrying `ID`, serial number, PEM, template name, status and
+- `IssuedCertificate` carrying `ID`, serial number, PEM, template name, status and
   validity window, with `ParsePEM` returning an `*x509.Certificate`.
 - Context-first API: `CreateCertificate` and `RevokeCertificate` take a
   `context.Context` as their first argument.

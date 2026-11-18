@@ -545,7 +545,7 @@ func TestTLSSkipVerify(t *testing.T) {
 	})
 }
 
-func TestUserCertificateParsePEM(t *testing.T) {
+func TestIssuedCertificateParsePEM(t *testing.T) {
 	t.Parallel()
 
 	tests := map[string]struct {
@@ -572,7 +572,7 @@ func TestUserCertificateParsePEM(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 
-			parsed, err := (&UserCertificate{PEM: test.pem}).ParsePEM()
+			parsed, err := (&IssuedCertificate{PEM: test.pem}).ParsePEM()
 			if test.wantErr != "" {
 				if err == nil || !strings.Contains(err.Error(), test.wantErr) {
 					t.Fatalf("ParsePEM error = %v, want it to contain %q", err, test.wantErr)

@@ -83,14 +83,14 @@ and tests can substitute a fake.
 
 ```go
 type CertificateIssuer interface {
-	CreateCertificate(ctx context.Context, csrPEM []byte, templateName string) (*safetech.UserCertificate, error)
+	CreateCertificate(ctx context.Context, csrPEM []byte, templateName string) (*safetech.IssuedCertificate, error)
 }
 
 type Enroller struct{ ca CertificateIssuer }
 
 func NewEnroller(ca CertificateIssuer) *Enroller { return &Enroller{ca: ca} }
 
-func (e *Enroller) Enroll(ctx context.Context, csrPEM []byte) (*safetech.UserCertificate, error) {
+func (e *Enroller) Enroll(ctx context.Context, csrPEM []byte) (*safetech.IssuedCertificate, error) {
 	return e.ca.CreateCertificate(ctx, csrPEM, "MY_TEMPLATE")
 }
 ```

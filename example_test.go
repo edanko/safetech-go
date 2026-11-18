@@ -99,7 +99,7 @@ func ExampleClient_RevokeCertificateWithOptions() {
 	}
 
 	// cert normally comes from CreateCertificate; the ID is what matters here.
-	cert := &safetech.UserCertificate{ID: uuid.MustParse("6f9d7e3a-1c2b-4d5e-8f90-112233445566")}
+	cert := &safetech.IssuedCertificate{ID: uuid.MustParse("6f9d7e3a-1c2b-4d5e-8f90-112233445566")}
 
 	ctx := context.Background()
 

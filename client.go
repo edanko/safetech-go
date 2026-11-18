@@ -325,7 +325,7 @@ func (c *Client) CreateCertificate(
 	ctx context.Context,
 	csrPEM []byte,
 	templateName string,
-) (*UserCertificate, error) {
+) (*IssuedCertificate, error) {
 	template := strings.TrimSpace(templateName)
 	if template == "" {
 		return nil, errors.New("safetech: template name is required")
@@ -491,7 +491,7 @@ func hasStatus(certs []certPayload, status string) bool {
 }
 
 // certFromIssue converts an issue response into a domain certificate.
-func certFromIssue(payload issuePayload, templateName string) (*UserCertificate, error) {
+func certFromIssue(payload issuePayload, templateName string) (*IssuedCertificate, error) {
 	info := payload.CertificateInfo
 
 	requestID, err := uuid.Parse(strings.TrimSpace(payload.CertificateRequest.ID))
@@ -503,7 +503,7 @@ func certFromIssue(payload issuePayload, templateName string) (*UserCertificate,
 		return nil, errors.New("safetech: issue response contains no certificate")
 	}
 
-	cert := &UserCertificate{
+	cert := &IssuedCertificate{
 		ID:           requestID,
 		SerialNumber: info.SerialNumber,
 		PEM:          []byte(info.PEM),

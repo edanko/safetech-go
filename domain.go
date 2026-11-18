@@ -9,8 +9,11 @@ import (
 	"uuid"
 )
 
-// UserCertificate is a certificate issued by the CA on behalf of a request.
-type UserCertificate struct {
+// IssuedCertificate is a certificate issued by the CA.
+//
+// It carries the identifiers needed both to inspect the certificate and to
+// revoke it later.
+type IssuedCertificate struct {
 	// ID identifies the issuance request. It is the value to pass to
 	// [Client.RevokeCertificate]; the CA resolves the certificate serial
 	// number from it.
@@ -121,7 +124,7 @@ type CommonContext struct {
 }
 
 // ParsePEM parses the issued leaf certificate.
-func (c *UserCertificate) ParsePEM() (*x509.Certificate, error) {
+func (c *IssuedCertificate) ParsePEM() (*x509.Certificate, error) {
 	if len(c.PEM) == 0 {
 		return nil, errors.New("safetech: certificate PEM is empty")
 	}

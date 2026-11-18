@@ -1,7 +1,7 @@
 # safetech
 
 Go client for the SafeTech CA certificate authority (`ca-core` REST API):
-issue X.509 user certificates from a CSR and revoke them.
+issue X.509 certificates from a CSR and revoke them.
 
 Vendor documentation (Russian):
 [SafeTech CA API — Swagger and request examples](https://docs.safetechlab.ru/share/e0dabuov2p/p/swagger-i-primery-zaprosov-v-api-safe-tech-ca-zPrNWFhF5l).
@@ -104,7 +104,7 @@ func main() {
 }
 ```
 
-`UserCertificate` carries `ID` (pass it to `RevokeCertificate` later),
+`IssuedCertificate` carries `ID` (pass it to `RevokeCertificate` later),
 `SerialNumber`, `PEM`, `TemplateName`, `Status`, `NotBefore` and `NotAfter`.
 Call `ParsePEM` to decode the issued certificate into an `*x509.Certificate`.
 
