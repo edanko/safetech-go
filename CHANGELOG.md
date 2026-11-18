@@ -12,98 +12,50 @@ Nothing yet. Changes for the next release are added here.
 
 ## [0.1.0] - 2026-11-18
 
-First public release.
+First public release: a client for the SafeTech CA `ca-core` REST API, requiring
+Go 1.27 and depending only on the standard library.
 
 ### Added
 
-- `Client` for the SafeTech CA `ca-core` REST API: certificate issuance from a
-  PEM-encoded PKCS#10 CSR against a named CA template, and certificate
-  revocation.
-- `New` constructor that validates the configuration and performs no network
-  I/O until the first operation.
-- `IssuedCertificate` carrying `ID`, serial number, PEM, template name, status and
-  validity window, with `ParsePEM` returning an `*x509.Certificate`.
-- `GetCertificate(ctx, serial)` to read a certificate back by serial number,
-  returning `ErrCertificateNotFound` for an unknown serial and round-tripping
-  the request id so the certificate can still be revoked.
-- Chain material on `IssuedCertificate`: `Chain`, `FullChain`, `Root`, `PKCS7`
-  and `DNHash`, so callers can install the full chain and trust anchor without
-  a second API call. Absent material is `nil` rather than an error.
-- `IssuedCertificate.TemplateID`, alongside `TemplateName`.
-- Context-first API: `CreateCertificate` and `RevokeCertificate` take a
-  `context.Context` as their first argument.
-- `ListTemplates`, returning the certificate templates configured in the CA with
-  their protocol, validity, key-usage and ST_CA enrollment settings.
+- Certificate issuance from a PEM-encoded PKCS#10 CSR against a named CA
+  template, with local validation of the CSR (PEM decode, parse, self-signature
+  check) and `ErrInvalidCSR` for requests the CA would reject.
+- Certificate revocation by the request ID returned at issuance, with RFC 5280
+  reasons through `Config.RevokeReason`, idempotent revocation through
+  `RevokeOptions.AllowAlreadyRevoked`, and `ErrCertificateRevoked` /
+  `ErrCertificateNotFound` for the recoverable cases.
+- `GetCertificate`, which reads a certificate back by serial number — the way
+  back to one whose PEM was not persisted after issuance — reporting an unknown
+  serial as `ErrCertificateNotFound`.
+- `ListTemplates`, returning the configured templates with their protocol,
+  validity, key-usage and ST_CA enrollment settings.
+- `IssuedCertificate`, carrying the request ID, serial number, PEM, template
+  name and ID, status and validity window, together with the chain material the
+  CA returns: `Chain`, `FullChain`, `Root`, `PKCS7` and `DNHash`, all `nil` when
+  the CA omits them. `ParsePEM` decodes the leaf into an `*x509.Certificate`.
+- Keycloak authentication with `/api/ui-config` discovery, a cached access
+  token, refresh-token renewal and a password-grant fallback.
+- `Config.RootCAs` and `RootCAsFromPEM` for trusting a private CA, which every
+  SafeTech CA installation needs: it signs its own gateway and Keycloak
+  endpoints with its own root.
 - `Config.APIBaseURL` to address `ca-core` directly instead of through the
-  gateway.
-- `Config.Retry` with a `RetryPolicy` that retries transient failures on
-  idempotent requests and honours `Retry-After`.
-- `RevokeCertificateWithOptions` and `RevokeOptions.AllowAlreadyRevoked`, for
-  idempotent revocation in reconciliation loops.
-- Local CSR validation before a request is sent: PEM decode, parse, and
-  self-signature check.
-- RFC 5280 revocation reasons (`RevokeReason`) selected through
-  `Config.RevokeReason`.
-- Keycloak authentication with automatic endpoint discovery
-  (`/api/ui-config`), access-token caching, refresh-token renewal, and a
-  password-grant fallback.
-- Typed errors: `ErrInvalidCSR`, `ErrCertificateNotFound` and
-  `ErrCertificateRevoked` for `errors.Is`; `HTTPError` and `APIError` for
-  `errors.As`.
-- `Version` variable (default `dev`), settable with
-  `-ldflags "-X github.com/edanko/safetech-go.Version=v1.2.3"`.
-- Vendor documentation references in the README: the SafeTech CA API article,
-  how to enable the `ca-core` Swagger UI for the full endpoint reference, and
-  the note that `Config.BaseURL` expects the gateway endpoint.
-
-### Changed
-
-- The module targets Go 1.27 and uses the standard-library `uuid` package
-  (`UUID`, `NewV4`/`NewV7`, `Parse`, `Max`, comparison and text marshalling).
-  It has no third-party dependencies.
-- Concurrent requests no longer serialise on the token cache: exactly one
-  goroutine performs a token request while the others wait for its outcome, and
-  cache hits do not touch the network path.
-- Requests that issue or revoke certificates are never retried, because the CA
-  offers no idempotency for them; only token, discovery and GET requests are.
-- The public API is the concrete `*Client`; no interface is exported, so
-  callers declare the narrow interface they need.
-- `*Client` is safe for concurrent use; the access token is shared behind a
-  mutex.
-- The integration test runs only behind the `integration` build tag and reads
-  its configuration from `STCA_BASE_URL`, `STCA_REALM_URL`, `STCA_USERNAME` and
-  `STCA_PASSWORD`.
-
-### Changed
-
-- TLS verification failures are no longer retried. A trust store that does not
-  contain the CA root will not contain it on the next attempt, so the error is
-  returned immediately instead of after three attempts with backoff.
-
-### Added
-
-- `Config.RootCAs` and `RootCAsFromPEM` for trusting a private CA, which is what
-  a SafeTech CA installation needs: it signs its own gateway and Keycloak
-  certificates with its own root.
-- `Config.RootCAs` cannot be combined with `TLSSkipVerify`; the combination is
-  rejected instead of silently ignoring the trust store.
-
-### Changed (tooling)
-
-- CI enforces a 90% statement-coverage floor on the library package; it is
-  currently 96.7%.
-
-### Fixed
-
-- A `Retry-After` value large enough to overflow `time.Duration` produced a
-  negative delay; it is now clamped to 24 hours. Found by `FuzzParseRetryAfter`,
-  whose input is kept as a regression seed in `testdata/fuzz`.
+  gateway, and `Config.Retry` with a `RetryPolicy` that retries transient
+  failures on idempotent requests only and honours `Retry-After`.
+- A context-first API: every operation takes a `context.Context`, and `*Client`
+  is safe for concurrent use with a single in-flight token request shared by
+  waiting callers.
+- Typed errors: sentinels for `errors.Is` and `*HTTPError` / `*APIError` for
+  `errors.As`, so callers never match on error strings.
+- `Version`, defaulting to `dev` and set at build time with an `-ldflags`
+  override.
 
 ### Security
 
-- Removed credentials, internal hostnames and internal template names that were
-  present in the working tree before the first public release; the exposed
-  credentials must be rotated.
+- The repository carries no credentials, internal hostnames or internal
+  template names; documentation and examples use placeholder URLs and template
+  names. The password that was present in the working tree before the first
+  release must still be rotated.
 - The client never logs the password or the access token.
-- `TLSSkipVerify` is documented as test-only and must never be enabled in
-  production.
+- `TLSSkipVerify` is documented as test-only, cannot be combined with
+  `Config.RootCAs`, and is never enabled by default; verification failures are
+  reported immediately rather than retried.

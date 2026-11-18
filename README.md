@@ -30,6 +30,8 @@ Vendor documentation (Russian):
 - Revokes idempotently when a reconciliation loop needs that.
 - Returns sentinel errors for `errors.Is` and typed `*HTTPError` / `*APIError` values for `errors.As`.
 - Is safe for concurrent use.
+- Exports no interfaces, so a caller declares the narrow interface it needs and
+  the package keeps its freedom to add methods.
 - Depends only on the standard library.
 
 ## Requirements
@@ -185,6 +187,9 @@ client, the same client the SafeTech CA web UI uses.
   UI uses the public `ca-ui` client, which is what discovery returns when
   `ClientID` is empty. Set `ClientID` and `ClientSecret` explicitly when your
   installation is provisioned around the confidential client.
+- **Concurrency.** Concurrent calls share one token: exactly one goroutine
+  performs the token request while the others wait for its outcome, and a cache
+  hit never touches the network.
 - Credentials are taken from the configuration only. The client never logs the
   password or the access token.
 
