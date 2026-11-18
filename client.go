@@ -388,7 +388,9 @@ type RevokeOptions struct {
 //
 // The serial is the CA-side identifier of a certificate, reported as
 // [IssuedCertificate.SerialNumber]. It is the way back to a certificate whose
-// PEM was not persisted at issuance time. Missing serial numbers return
+// PEM was not persisted at issuance time.
+//
+// An unknown serial makes the CA answer 404, which is reported as
 // [ErrCertificateNotFound].
 //
 // TemplateName is empty on the returned value, because the CA reports only the
