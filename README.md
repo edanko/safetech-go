@@ -22,6 +22,10 @@ Vendor documentation (Russian):
 - Revokes certificates by the ID returned at issuance, with RFC 5280 revocation reasons.
 - Authenticates against Keycloak with cached, automatically refreshed access tokens.
 - Takes a `context.Context` on every operation, so cancellation and deadlines propagate.
+- Retries transient failures (429/5xx, network errors) on idempotent requests
+  only, honouring `Retry-After`; never on issuance or revocation.
+- Addresses either the CA gateway or `ca-core` directly.
+- Revokes idempotently when a reconciliation loop needs that.
 - Returns sentinel errors for `errors.Is` and typed `*HTTPError` / `*APIError` values for `errors.As`.
 - Is safe for concurrent use.
 - Depends only on the standard library.
@@ -125,6 +129,8 @@ to be closed. More recipes are in [docs/EXAMPLES.md](docs/EXAMPLES.md).
 | `TLSSkipVerify` | `false` | Disables server certificate verification. Test environments only; see [Security notes](#security-notes). |
 | `HTTPClient` | `nil` (internal default) | Optional custom `*http.Client`. When `TLSSkipVerify` is set, the custom transport must be an `*http.Transport`. |
 | `UserAgent` | `safetech/<Version>` | `User-Agent` header sent to the API. |
+| `Retry` | 3 attempts, 200ms backoff, 5s cap | Retry policy for idempotent requests. See [Retries](#retries). |
+| `APIBaseURL` | empty | Full base URL of the `ca-core` API, for example `http://ca-core.example.com:8081/api/v1`. Set it to bypass the gateway; `BaseURL` is then ignored and `AuthURL` becomes required. |
 
 ## Authentication
 
@@ -156,6 +162,16 @@ serial through the certificate search endpoint first, then submits the status
 change with the configured `RevokeReason`. Revoking an already revoked certificate returns
 `ErrCertificateRevoked`; an ID with no matching certificate returns
 `ErrCertificateNotFound`.
+
+Reconciliation loops that may retry a revocation can opt out of that distinction:
+
+```go
+err := client.RevokeCertificateWithOptions(ctx, cert.ID, safetech.RevokeOptions{
+	AllowAlreadyRevoked: true, // treat "already revoked" as success
+})
+```
+
+A certificate that does not exist is still reported as `ErrCertificateNotFound`.
 
 Revocation reasons (`RevokeReason`, RFC 5280):
 
@@ -210,6 +226,31 @@ Two rules the CA enforces, which the list lets you check before issuing:
 
 Deleted templates are returned by the API and therefore by `ListTemplates`;
 filter on `Deleted` when you only want usable ones.
+
+## Retries
+
+Transient failures are retried for idempotent requests only: token requests,
+endpoint discovery and GET operations such as `ListTemplates`. `CreateCertificate`
+(POST) and `RevokeCertificate` (PATCH) are never retried, because the CA gives no
+way to make them idempotent and a retry could issue a second certificate.
+
+Retried: network errors, `429`, and `5xx`. A `Retry-After` header, in seconds or
+as an HTTP date, replaces the computed delay; it is capped at `MaxBackoff`.
+
+```go
+client, err := safetech.New(safetech.Config{
+	BaseURL:  "https://ca.example.com:7443",
+	Username: os.Getenv("STCA_USERNAME"),
+	Password: os.Getenv("STCA_PASSWORD"),
+	Retry: safetech.RetryPolicy{
+		MaxAttempts: 5,                     // total attempts, default 3
+		Backoff:     500 * time.Millisecond, // doubles per attempt, default 200ms
+		MaxBackoff:  10 * time.Second,       // default 5s
+	},
+})
+```
+
+Set `Retry: safetech.RetryPolicy{Disabled: true}` to attempt everything once.
 
 ## Security notes
 
@@ -296,11 +337,18 @@ complete set of requests and parameters.
 
 ### Addressing the API
 
-`Config.BaseURL` is the **gateway** endpoint, for example
-`https://ca.example.com:7443`; the client appends the `ca-core/api/v1` prefix
-that the gateway routes to `ca-core`. Addressing `ca-core` directly, for
-example `http://<ca-core-host>:8081/api/v1`, uses a different prefix and is not
-supported yet; see [REFACTORING.md](REFACTORING.md).
+Two addressing modes are supported.
+
+- **Gateway (default).** Set `Config.BaseURL` to the gateway endpoint, for
+  example `https://ca.example.com:7443`. The client appends the
+  `ca-core/api/v1` prefix that the gateway routes to `ca-core`, and derives the
+  Keycloak endpoint from `/api/ui-config`. The gateway routes by the
+  `x-eureka-node` header; `Config.EurekaNode` defaults to `ST CA Root`, which is
+  the value the bundled installation uses.
+- **Direct `ca-core`.** Set `Config.APIBaseURL` to the full API base, for
+  example `http://<ca-core-host>:8081/api/v1`, and set `Config.AuthURL` to the
+  realm URL. No prefix is appended and discovery is not attempted, because
+  `/api/ui-config` is served by the gateway only.
 
 ## Versioning
 

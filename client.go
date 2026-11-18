@@ -52,7 +52,15 @@ type Config struct {
 	//
 	// The Keycloak endpoint and realm are discovered from the public
 	// "{BaseURL}/api/ui-config" endpoint unless AuthURL is set.
+	//
+	// Ignored when APIBaseURL is set.
 	BaseURL string
+	// APIBaseURL is the full base URL of the ca-core API itself, for example
+	// "http://ca-core.example.com:8081/api/v1". Set it to address ca-core
+	// directly instead of through the gateway: no path prefix is appended and
+	// BaseURL is ignored. AuthURL is then required, because the gateway's
+	// /api/ui-config discovery endpoint is not available.
+	APIBaseURL string
 	// AuthURL is an optional explicit URL of the Keycloak realm, for
 	// example "https://keycloak.example.com/realms/ca". When set, discovery
 	// through /api/ui-config is skipped. It is required when the API is
@@ -84,6 +92,9 @@ type Config struct {
 	HTTPClient *http.Client
 	// UserAgent overrides the "safetech/<Version>" User-Agent header.
 	UserAgent string
+	// Retry configures retries for idempotent requests. The zero value retries
+	// transient failures twice, with exponential backoff.
+	Retry RetryPolicy
 }
 
 // Error values reported by the client. They are wrapped by the returned
@@ -150,12 +161,15 @@ type Client struct {
 	node      string
 	userAgent string
 	http      *http.Client
+	retry     retryPolicy
 
-	// mu serialises access to the cached token and resolved endpoints, so a
-	// burst of concurrent requests performs at most one token request.
-	mu    sync.Mutex
-	token *cachedToken
-	auth  *authEndpoints
+	// mu guards the cached token and the resolved auth endpoints. Token
+	// requests themselves run without it, coordinated by refresh, so cache
+	// hits never wait for a token round trip.
+	mu      sync.Mutex
+	token   *cachedToken
+	auth    *authEndpoints
+	refresh *tokenRefresh
 }
 
 // authEndpoints is the resolved Keycloak token endpoint and OIDC client id.
@@ -168,18 +182,9 @@ type authEndpoints struct {
 // performs no network calls; the access token is obtained on the first
 // request.
 func New(cfg Config) (*Client, error) {
-	base := strings.TrimSpace(cfg.BaseURL)
-	if base == "" {
-		return nil, errors.New("safetech: Config.BaseURL is required")
-	}
-
-	parsed, err := url.Parse(base)
+	apiBase, err := resolveAPIBase(&cfg)
 	if err != nil {
-		return nil, fmt.Errorf("safetech: parse Config.BaseURL %q: %w", cfg.BaseURL, err)
-	}
-
-	if parsed.Scheme != "http" && parsed.Scheme != "https" {
-		return nil, fmt.Errorf("safetech: Config.BaseURL %q must be an absolute http(s) URL", cfg.BaseURL)
+		return nil, err
 	}
 
 	httpClient, err := buildHTTPClient(cfg)
@@ -187,7 +192,6 @@ func New(cfg Config) (*Client, error) {
 		return nil, err
 	}
 
-	cfg.BaseURL = strings.TrimSuffix(base, "/")
 	cfg.AuthURL = strings.TrimSuffix(strings.TrimSpace(cfg.AuthURL), "/")
 	cfg.ClientID = strings.TrimSpace(cfg.ClientID)
 	cfg.EurekaNode = cmp.Or(strings.TrimSpace(cfg.EurekaNode), defaultNode)
@@ -196,11 +200,60 @@ func New(cfg Config) (*Client, error) {
 
 	return &Client{
 		cfg:       cfg,
-		apiBase:   cfg.BaseURL + "/" + apiPrefix,
+		apiBase:   apiBase,
 		node:      cfg.EurekaNode,
 		userAgent: cfg.UserAgent,
 		http:      httpClient,
+		retry:     newRetryPolicy(cfg.Retry),
 	}, nil
+}
+
+// resolveAPIBase derives the base URL of the ca-core API from the configuration,
+// normalising the URL fields it reads.
+func resolveAPIBase(cfg *Config) (string, error) {
+	if explicit := strings.TrimSpace(cfg.APIBaseURL); explicit != "" {
+		if err := validateBaseURL("Config.APIBaseURL", explicit); err != nil {
+			return "", err
+		}
+
+		cfg.APIBaseURL = strings.TrimSuffix(explicit, "/")
+
+		if strings.TrimSpace(cfg.AuthURL) == "" {
+			return "", errors.New(
+				"safetech: Config.AuthURL is required when Config.APIBaseURL is set: " +
+					"/api/ui-config discovery is only available through the gateway",
+			)
+		}
+
+		return cfg.APIBaseURL, nil
+	}
+
+	base := strings.TrimSpace(cfg.BaseURL)
+	if base == "" {
+		return "", errors.New("safetech: Config.BaseURL or Config.APIBaseURL is required")
+	}
+
+	if err := validateBaseURL("Config.BaseURL", base); err != nil {
+		return "", err
+	}
+
+	cfg.BaseURL = strings.TrimSuffix(base, "/")
+
+	return cfg.BaseURL + "/" + apiPrefix, nil
+}
+
+// validateBaseURL reports whether value is an absolute http(s) URL.
+func validateBaseURL(field, value string) error {
+	parsed, err := url.Parse(value)
+	if err != nil {
+		return fmt.Errorf("safetech: parse %s %q: %w", field, value, err)
+	}
+
+	if parsed.Scheme != "http" && parsed.Scheme != "https" {
+		return fmt.Errorf("safetech: %s %q must be an absolute http(s) URL", field, value)
+	}
+
+	return nil
 }
 
 // buildHTTPClient returns the HTTP client used for all requests, applying
@@ -322,6 +375,14 @@ func (c *Client) ListTemplates(ctx context.Context) ([]CertificateTemplate, erro
 	return templates, nil
 }
 
+// RevokeOptions tunes [Client.RevokeCertificateWithOptions].
+type RevokeOptions struct {
+	// AllowAlreadyRevoked reports success instead of [ErrCertificateRevoked]
+	// when the certificate is already revoked. Reconciliation loops usually
+	// want this, because a retried revocation is not a failure.
+	AllowAlreadyRevoked bool
+}
+
 // RevokeCertificate revokes the certificate created for the given request id.
 //
 // The API revokes certificates by serial number, so the serial is resolved from
@@ -329,12 +390,25 @@ func (c *Client) ListTemplates(ctx context.Context) ([]CertificateTemplate, erro
 //
 // The caller's context bounds the whole operation, including authentication.
 func (c *Client) RevokeCertificate(ctx context.Context, certificateID uuid.UUID) error {
+	return c.RevokeCertificateWithOptions(ctx, certificateID, RevokeOptions{})
+}
+
+// RevokeCertificateWithOptions is [Client.RevokeCertificate] with options.
+func (c *Client) RevokeCertificateWithOptions(
+	ctx context.Context,
+	certificateID uuid.UUID,
+	opts RevokeOptions,
+) error {
 	if certificateID == uuid.Nil() {
 		return errors.New("safetech: certificate id is required")
 	}
 
 	serial, err := c.findSerialByRequestID(ctx, certificateID)
 	if err != nil {
+		if opts.AllowAlreadyRevoked && errors.Is(err, ErrCertificateRevoked) {
+			return nil
+		}
+
 		return err
 	}
 

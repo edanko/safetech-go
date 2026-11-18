@@ -7,7 +7,9 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
+	"time"
 	"unicode/utf8"
 )
 
@@ -32,6 +34,10 @@ func (e envelope) err() error {
 
 // APIError is returned when the CA reports a failure inside an otherwise
 // successful HTTP response. Use errors.As or errors.AsType to inspect it.
+//
+// The CA also sends a server-side stacktrace in its error envelope. It is
+// deliberately not surfaced: it describes the CA's internals, not the caller's
+// request, and it is not stable enough to match on.
 type APIError struct {
 	// Code is the errorCode reported by the CA. It is 0 when the CA
 	// reported a message without a code.
@@ -55,6 +61,9 @@ type HTTPError struct {
 	StatusCode int
 	// Body is the response body, trimmed and truncated to 512 bytes.
 	Body string
+	// RetryAfter is the delay requested by the response's Retry-After
+	// header, or zero when the header is absent or unusable.
+	RetryAfter time.Duration
 }
 
 func (e *HTTPError) Error() string {
@@ -65,13 +74,32 @@ func (e *HTTPError) Error() string {
 	return fmt.Sprintf("safetech: http %d: %s", e.StatusCode, e.Body)
 }
 
+// maxRetryAfter caps a server-provided retry delay.
+const maxRetryAfter = 24 * time.Hour
+
 // nullLiteral is the JSON representation of an absent payload.
 var nullLiteral = []byte("null")
 
 // do performs an authenticated JSON request against the CA API and decodes the
 // payload of the response envelope into out. out may be nil when the payload is
 // not needed.
+//
+// GET requests are retried according to Config.Retry; POST and PATCH requests are
+// not, because issuing and revoking certificates is not idempotent.
 func (c *Client) do(ctx context.Context, method, path string, reqBody, out any) error {
+	attempt := func() error {
+		return c.doOnce(ctx, method, path, reqBody, out)
+	}
+
+	if method == http.MethodGet {
+		return c.retryable(ctx, method+" "+path, attempt)
+	}
+
+	return attempt()
+}
+
+// doOnce performs a single authenticated JSON request.
+func (c *Client) doOnce(ctx context.Context, method, path string, reqBody, out any) error {
 	token, err := c.accessToken(ctx)
 	if err != nil {
 		return err
@@ -117,7 +145,7 @@ func (c *Client) do(ctx context.Context, method, path string, reqBody, out any) 
 	}
 
 	if resp.StatusCode >= http.StatusBadRequest {
-		return newHTTPError(resp.StatusCode, raw)
+		return newHTTPError(resp.StatusCode, resp.Header, raw)
 	}
 
 	if err := decodeEnvelope(raw, out); err != nil {
@@ -160,12 +188,44 @@ func decodeEnvelope(raw []byte, out any) error {
 	return nil
 }
 
-// newHTTPError builds an [*HTTPError] from a response status and body.
-func newHTTPError(status int, raw []byte) *HTTPError {
+// newHTTPError builds an [*HTTPError] from a response, keeping the body and the
+// server's Retry-After hint.
+func newHTTPError(status int, header http.Header, raw []byte) *HTTPError {
 	return &HTTPError{
 		StatusCode: status,
 		Body:       truncate(strings.TrimSpace(string(raw)), maxErrorBodyBytes),
+		RetryAfter: parseRetryAfter(header.Get("Retry-After")),
 	}
+}
+
+// parseRetryAfter interprets a Retry-After header value, which carries either a
+// number of seconds or an HTTP date.
+func parseRetryAfter(value string) time.Duration {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return 0
+	}
+
+	if seconds, err := strconv.Atoi(value); err == nil {
+		switch {
+		case seconds <= 0:
+			return 0
+		// Clamp instead of overflowing: a large value would multiply past the
+		// range of time.Duration and come out negative.
+		case seconds > int(maxRetryAfter/time.Second):
+			return maxRetryAfter
+		}
+
+		return time.Duration(seconds) * time.Second
+	}
+
+	if when, err := http.ParseTime(value); err == nil {
+		if delay := time.Until(when); delay > 0 {
+			return delay
+		}
+	}
+
+	return 0
 }
 
 // truncate shortens s to at most limit bytes without splitting a UTF-8 rune.

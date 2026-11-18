@@ -27,6 +27,12 @@ First public release.
   `context.Context` as their first argument.
 - `ListTemplates`, returning the certificate templates configured in the CA with
   their protocol, validity, key-usage and ST_CA enrollment settings.
+- `Config.APIBaseURL` to address `ca-core` directly instead of through the
+  gateway.
+- `Config.Retry` with a `RetryPolicy` that retries transient failures on
+  idempotent requests and honours `Retry-After`.
+- `RevokeCertificateWithOptions` and `RevokeOptions.AllowAlreadyRevoked`, for
+  idempotent revocation in reconciliation loops.
 - Local CSR validation before a request is sent: PEM decode, parse, and
   self-signature check.
 - RFC 5280 revocation reasons (`RevokeReason`) selected through
@@ -48,6 +54,11 @@ First public release.
 - The module targets Go 1.27 and uses the standard-library `uuid` package
   (`UUID`, `NewV4`/`NewV7`, `Parse`, `Max`, comparison and text marshalling).
   It has no third-party dependencies.
+- Concurrent requests no longer serialise on the token cache: exactly one
+  goroutine performs a token request while the others wait for its outcome, and
+  cache hits do not touch the network path.
+- Requests that issue or revoke certificates are never retried, because the CA
+  offers no idempotency for them; only token, discovery and GET requests are.
 - The public API is the concrete `*Client`; no interface is exported, so
   callers declare the narrow interface they need.
 - `*Client` is safe for concurrent use; the access token is shared behind a
@@ -55,6 +66,12 @@ First public release.
 - The integration test runs only behind the `integration` build tag and reads
   its configuration from `STCA_BASE_URL`, `STCA_REALM_URL`, `STCA_USERNAME` and
   `STCA_PASSWORD`.
+
+### Fixed
+
+- A `Retry-After` value large enough to overflow `time.Duration` produced a
+  negative delay; it is now clamped to 24 hours. Found by `FuzzParseRetryAfter`,
+  whose input is kept as a regression seed in `testdata/fuzz`.
 
 ### Security
 

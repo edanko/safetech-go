@@ -137,7 +137,7 @@ func TestNewHTTPError(t *testing.T) {
 	t.Run("truncates long bodies", func(t *testing.T) {
 		t.Parallel()
 
-		httpErr := newHTTPError(500, []byte(strings.Repeat("x", maxErrorBodyBytes*2)))
+		httpErr := newHTTPError(500, http.Header{}, []byte(strings.Repeat("x", maxErrorBodyBytes*2)))
 		if got := len(httpErr.Body); got > maxErrorBodyBytes+len("…") {
 			t.Errorf("Body length = %d, want at most %d", got, maxErrorBodyBytes+len("…"))
 		}
@@ -146,7 +146,7 @@ func TestNewHTTPError(t *testing.T) {
 	t.Run("keeps short bodies", func(t *testing.T) {
 		t.Parallel()
 
-		httpErr := newHTTPError(502, []byte("  gateway unavailable\n"))
+		httpErr := newHTTPError(502, http.Header{}, []byte("  gateway unavailable\n"))
 		if httpErr.Body != "gateway unavailable" {
 			t.Errorf("Body = %q, want %q", httpErr.Body, "gateway unavailable")
 		}
@@ -159,7 +159,7 @@ func TestNewHTTPError(t *testing.T) {
 	t.Run("renders without body", func(t *testing.T) {
 		t.Parallel()
 
-		httpErr := newHTTPError(503, nil)
+		httpErr := newHTTPError(503, http.Header{}, nil)
 		if got, want := httpErr.Error(), "safetech: http 503"; got != want {
 			t.Errorf("Error() = %q, want %q", got, want)
 		}

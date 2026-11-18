@@ -181,7 +181,17 @@ func TestIntegrationIssueAndRevoke(t *testing.T) {
 		t.Fatalf("RevokeCertificate: %v", err)
 	}
 
-	if err := client.RevokeCertificate(t.Context(), cert.ID); err == nil {
+	secondErr := client.RevokeCertificate(t.Context(), cert.ID)
+	if secondErr == nil {
 		t.Fatal("expected the second revocation to fail")
 	}
+
+	// A reconciliation loop can treat "already revoked" as success.
+	if err := client.RevokeCertificateWithOptions(
+		t.Context(), cert.ID, safetech.RevokeOptions{AllowAlreadyRevoked: true},
+	); err != nil {
+		t.Fatalf("idempotent revoke: %v (second revoke reported %v)", err, secondErr)
+	}
+
+	t.Log("idempotent revoke: ok")
 }

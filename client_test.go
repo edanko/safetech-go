@@ -48,7 +48,7 @@ func TestNewValidation(t *testing.T) {
 	}{
 		"missing base url": {
 			config: Config{},
-			want:   "Config.BaseURL is required",
+			want:   "Config.BaseURL or Config.APIBaseURL is required",
 		},
 		"relative base url": {
 			config: Config{BaseURL: "ca.example.com:7443"},

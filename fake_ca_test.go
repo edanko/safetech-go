@@ -78,10 +78,12 @@ func newFakeCAWithTLS(t *testing.T, useTLS bool) *fakeCA {
 	mux := http.NewServeMux()
 	mux.HandleFunc(uiConfigPath, f.serveUIConfig)
 	mux.HandleFunc("/realms/", f.serveToken)
-	mux.HandleFunc(apiPath(pathIssue), f.serveIssue)
-	mux.HandleFunc(apiPath(pathSearch), f.serveSearch)
-	mux.HandleFunc(apiPath("/certs/"), f.serveChangeStatus)
-	mux.HandleFunc(apiPath(pathTemplates), f.serveTemplates)
+	for _, prefix := range []string{apiPath(""), directAPIPath("")} {
+		mux.HandleFunc(prefix+pathIssue, f.serveIssue)
+		mux.HandleFunc(prefix+pathSearch, f.serveSearch)
+		mux.HandleFunc(prefix+"/certs/", f.serveChangeStatus)
+		mux.HandleFunc(prefix+pathTemplates, f.serveTemplates)
+	}
 
 	if useTLS {
 		f.server = httptest.NewTLSServer(f.record(mux))
@@ -217,6 +219,12 @@ func apiPath(endpoint string) string {
 	return "/" + apiPrefix + endpoint
 }
 
+// directAPIPath returns the same path as ca-core exposes it when addressed
+// without the gateway.
+func directAPIPath(endpoint string) string {
+	return "/api/v1" + endpoint
+}
+
 // setTemplates changes the template list response.
 func (f *fakeCA) setTemplates(templates []templatePayload) {
 	f.mu.Lock()
@@ -326,7 +334,7 @@ func (f *fakeCA) serveToken(w http.ResponseWriter, r *http.Request) {
 }
 
 func (f *fakeCA) serveIssue(w http.ResponseWriter, r *http.Request) {
-	if handler := f.handler(apiPath(pathIssue)); handler != nil {
+	if handler := f.handler(r.URL.Path); handler != nil {
 		handler(w, r)
 
 		return
@@ -360,7 +368,7 @@ func (f *fakeCA) serveIssue(w http.ResponseWriter, r *http.Request) {
 }
 
 func (f *fakeCA) serveSearch(w http.ResponseWriter, r *http.Request) {
-	if handler := f.handler(apiPath(pathSearch)); handler != nil {
+	if handler := f.handler(r.URL.Path); handler != nil {
 		handler(w, r)
 
 		return
@@ -377,7 +385,7 @@ func (f *fakeCA) serveSearch(w http.ResponseWriter, r *http.Request) {
 }
 
 func (f *fakeCA) serveTemplates(w http.ResponseWriter, r *http.Request) {
-	if handler := f.handler(apiPath(pathTemplates)); handler != nil {
+	if handler := f.handler(r.URL.Path); handler != nil {
 		handler(w, r)
 
 		return
@@ -394,7 +402,7 @@ func (f *fakeCA) serveTemplates(w http.ResponseWriter, r *http.Request) {
 }
 
 func (f *fakeCA) serveChangeStatus(w http.ResponseWriter, r *http.Request) {
-	if handler := f.handler(apiPath("/certs/")); handler != nil {
+	if handler := f.handler(r.URL.Path); handler != nil {
 		handler(w, r)
 
 		return
@@ -404,7 +412,10 @@ func (f *fakeCA) serveChangeStatus(w http.ResponseWriter, r *http.Request) {
 	status := f.revokedStatus
 	f.mu.Unlock()
 
-	serial := strings.TrimSuffix(strings.TrimPrefix(r.URL.Path, apiPath("/certs/")), "/change_status")
+	serial := ""
+	if _, after, ok := strings.Cut(r.URL.Path, "/certs/"); ok {
+		serial, _, _ = strings.Cut(after, "/change_status")
+	}
 
 	writeJSON(w, http.StatusOK, map[string]any{
 		"errorCode": 0,
