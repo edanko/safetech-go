@@ -38,11 +38,12 @@ ordered by value.
    refreshes would keep cache hits lock-free. No new dependency is needed for the
    channel version.
 
-3. **Confirm the timestamp semantics.** The CA returns `2026-10-22T18:28:59.00000`
-   with no time zone; the client interprets it as UTC. If the CA actually emits
-   local time, `NotBefore`/`NotAfter` are shifted by the server's UTC offset.
-   Verify against the vendor, then either document it or add an explicit
-   `Config.TimeZone`.
+3. **Confirm the timestamp zone.** The vendor API article shows the same
+   zone-less layout the parser expects (`2026-04-20T18:39:51.89110`), so the
+   format is settled. The intended zone is still undocumented: the client reads
+   the values as UTC, and if the CA emits server-local time instead,
+   `NotBefore`/`NotAfter` shift by that offset. Confirm with the vendor, then
+   document it or add an explicit `Config.TimeZone`.
 
 4. **Confirm the serial-number encoding.** Revocation builds
    `/certs/{serial}/change_status` from the `serialNumber` field, URL-escaped as
@@ -52,46 +53,52 @@ ordered by value.
 
 ### P1 — robustness
 
-5. **Retries.** Transient `5xx`/`429` responses surface immediately. Retry with
+5. **Support addressing `ca-core` directly.** `Config.BaseURL` must be a
+   gateway endpoint because the `ca-core/api/v1` prefix is appended
+   unconditionally. The vendor article addresses `ca-core` directly as
+   `http://<ca-core-host>:8081/api/v1`, which needs a configurable prefix (or a
+   `Config.APIPrefix` field). Today the workaround is the gateway.
+
+6. **Retries.** Transient `5xx`/`429` responses surface immediately. Retry with
    backoff and `Retry-After` support for token requests and discovery (both
    idempotent). Do **not** retry `POST /certs/issue` blindly: it is not
    idempotent and may issue duplicate certificates.
 
-6. **Idempotent revocation.** `RevokeCertificate` reports
+7. **Idempotent revocation.** `RevokeCertificate` reports
    `ErrCertificateRevoked` for an already-revoked certificate. Reconciliation
    loops usually want that to be a success; add an option
    (`RevokeOptions{AlreadyRevoked: ...}`) instead of forcing callers to special-case
    the sentinel.
 
-7. **Fuzz the parsers.** `decodeEnvelope` and `normalizeCSR` parse untrusted
+8. **Fuzz the parsers.** `decodeEnvelope` and `normalizeCSR` parse untrusted
    input. Two `Fuzz*` functions would be cheap and catch panics or runaway
    allocations.
 
-8. **`stacktrace` in the envelope.** The CA includes a server stack trace on
+9. **`stacktrace` in the envelope.** The CA includes a server stack trace on
    errors; it is deliberately ignored. Keep it that way (server internals are not
    ours to surface) and state it in the `APIError` docs.
 
-9. **Certificate payload fallbacks.** Issuance requires `certificateInfo.pem`.
+10. **Certificate payload fallbacks.** Issuance requires `certificateInfo.pem`.
    Some deployments return the certificate only in
    `certificateRequest.certificate`. Support both, with the PEM/DER question
    settled by a fixture test.
 
 ### P2 — structure and tooling
 
-10. **Keep the package flat.** One vendored API, ~900 lines: a `internal/` split
+11. **Keep the package flat.** One vendored API, ~900 lines: a `internal/` split
     or a DTO subpackage would add indirection without a second consumer. Revisit
     if a second SafeTech API surface is added.
 
-11. **Reconsider the Go floor.** Using the standard-library `uuid` from Go 1.27
+12. **Reconsider the Go floor.** Using the standard-library `uuid` from Go 1.27
     removes the last dependency but requires Go 1.27+ from every consumer.
     `github.com/google/uuid` would lower the floor to Go 1.21 at the cost of one
     dependency. Decide before tagging `v1.0.0`; `v0.x` is the right time to
     change it.
 
-12. **Example tests.** `ExampleClient_CreateCertificate` in
+13. **Example tests.** `ExampleClient_CreateCertificate` in
     `example_test.go` renders in godoc and is compiled, so the README example
     cannot rot.
 
-13. **Coverage signal.** Cover the three error branches that still matter
+14. **Coverage signal.** Cover the three error branches that still matter
     (`discoverAuth` decode failure, `requestToken` malformed JSON, `New` with a
     malformed `BaseURL`) before adding a threshold gate.

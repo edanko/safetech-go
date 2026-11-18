@@ -3,6 +3,9 @@
 Go client for the SafeTech CA certificate authority (`ca-core` REST API):
 issue X.509 user certificates from a CSR and revoke them.
 
+Vendor documentation (Russian):
+[SafeTech CA API — Swagger and request examples](https://docs.safetechlab.ru/share/e0dabuov2p/p/swagger-i-primery-zaprosov-v-api-safe-tech-ca-zPrNWFhF5l).
+
 [![CI](https://img.shields.io/github/actions/workflow/status/edanko/safetech/test.yml?branch=main)](https://github.com/edanko/safetech/actions/workflows/test.yml)
 [![Go Reference](https://pkg.go.dev/badge/github.com/edanko/safetech.svg)](https://pkg.go.dev/github.com/edanko/safetech)
 [![Go Version](https://img.shields.io/github/go-mod/go-version/edanko/safetech)](https://go.dev/)
@@ -108,8 +111,8 @@ to be closed. More recipes are in [docs/EXAMPLES.md](docs/EXAMPLES.md).
 | --- | --- | --- |
 | `BaseURL` | required | Gateway base URL, for example `https://ca.example.com:7443`. The `ca-core/api/v1` path prefix is appended automatically. |
 | `AuthURL` | empty (discover) | Keycloak realm URL, for example `https://keycloak.example.com/realms/ca`. When set, `/api/ui-config` discovery is skipped. |
-| `ClientID` | `ca-ui` (or the discovered client ID) | OIDC client used for authentication. |
-| `ClientSecret` | empty | Client secret for confidential clients. Leave empty for the public `ca-ui` client. |
+| `ClientID` | discovered (`ca-ui`) | OIDC client used for authentication. The vendor examples use the confidential `ca-gateway` client; set it explicitly when your realm is provisioned that way. |
+| `ClientSecret` | empty | Client secret for confidential clients such as `ca-gateway`. Leave empty for the public `ca-ui` client. |
 | `Username` | required | Account for the password grant. |
 | `Password` | required | Password for the password grant. |
 | `EurekaNode` | `ST CA Root` | CA node identity, sent as the `x-eureka-node` header. |
@@ -127,13 +130,16 @@ client, the same client the SafeTech CA web UI uses.
 - **Discovery.** Unless `AuthURL` is set, the client calls
   `{BaseURL}/api/ui-config`, which advertises the Keycloak URL, realm and client
   ID. Set `AuthURL` to skip that call, for example when the gateway does not
-  expose `ui-config` or when you address `ca-core` directly.
+  expose `ui-config`.
 - **Token lifecycle.** The access token is obtained lazily, cached, and
   refreshed with the refresh-token grant before it expires. If the refresh
   fails, the client falls back to the password grant.
-- **Confidential clients.** Set `ClientSecret` when the OIDC client is not
-  public. The default `ca-ui` client is public, so `ClientSecret` normally
-  stays empty.
+- **Clients.** The vendor documentation authenticates with the confidential
+  `ca-gateway` client and a client secret, which is also what `CA CLI` prompts
+  for (realm URL, client ID, client secret, administrator credentials). The web
+  UI uses the public `ca-ui` client, which is what discovery returns when
+  `ClientID` is empty. Set `ClientID` and `ClientSecret` explicitly when your
+  installation is provisioned around the confidential client.
 - Credentials are taken from the configuration only. The client never logs the
   password or the access token.
 
@@ -244,6 +250,48 @@ instead of failing.
 
 CI runs unit tests, linters and security scanners; the pipeline layout is
 described in [docs/CI.md](docs/CI.md).
+
+## Documentation
+
+| Resource | Location |
+| --- | --- |
+| SafeTech CA API — Swagger and request examples | <https://docs.safetechlab.ru/share/e0dabuov2p/p/swagger-i-primery-zaprosov-v-api-safe-tech-ca-zPrNWFhF5l> |
+| Installation, configuration and administration guides | Same documentation portal (`Установка и настройка`, `Руководства`) |
+| CA CLI usage | Same portal, `CA CLI` |
+| HashiCorp Vault integration | Same portal, `Интеграция SafeTech CA с HashiCorp Vault` |
+
+The vendor documentation is written in Russian. The linked API article covers
+authentication, certificate requests, certificate templates, attributes and
+organizational units. The `certs/*` endpoints this client uses for issuance and
+revocation are not part of that article; the client's request shapes were
+derived from the API itself and are covered by the test suite.
+
+### Full API reference (Swagger)
+
+`ca-core` bundles a Swagger UI that is disabled by default. Enable it in
+`/opt/st-ca/ca-core/application.yml`:
+
+```yaml
+springdoc:
+  swagger-ui:
+    enabled: true
+  api-docs:
+    enabled: true
+```
+
+Restart `ca-core` and open
+`http://<ca-core-host>:8081/api/v1/swagger-ui/index.html`. The endpoint list is
+served over plain HTTP, so use a private browsing window if your browser
+rewrites the URL to HTTPS. Swagger is the authoritative reference for the
+complete set of requests and parameters.
+
+### Addressing the API
+
+`Config.BaseURL` is the **gateway** endpoint, for example
+`https://ca.example.com:7443`; the client appends the `ca-core/api/v1` prefix
+that the gateway routes to `ca-core`. Addressing `ca-core` directly, for
+example `http://<ca-core-host>:8081/api/v1`, uses a different prefix and is not
+supported yet; see [REFACTORING.md](REFACTORING.md).
 
 ## Versioning
 

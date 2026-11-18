@@ -39,6 +39,9 @@ First public release.
   `errors.As`.
 - `Version` variable (default `dev`), settable with
   `-ldflags "-X github.com/edanko/safetech.Version=v1.2.3"`.
+- Vendor documentation references in the README: the SafeTech CA API article,
+  how to enable the `ca-core` Swagger UI for the full endpoint reference, and
+  the note that `Config.BaseURL` expects the gateway endpoint.
 
 ### Changed
 
