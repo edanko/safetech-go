@@ -33,21 +33,77 @@ runbook around it.
 
 2. **Protect `main`** (Settings → Branches → Add branch protection rule):
 
-   - require a pull request and at least one approval
    - require the status checks listed under
      [Required status checks](CI.md#required-status-checks)
    - require branches to be up to date before merging
+   - require conversation resolution
    - do not allow administrators to bypass
+   - block force pushes and deletions
+
+   The same settings from the command line, after the first push:
+
+   ```bash
+   gh api -X PUT repos/edanko/safetech-go/branches/main/protection --input - <<'JSON'
+   {
+     "required_status_checks": {
+       "strict": true,
+       "contexts": ["Test (Go 1.27)", "Test (Go stable)", "Lint"]
+     },
+     "enforce_admins": true,
+     "required_pull_request_reviews": null,
+     "restrictions": null,
+     "allow_force_pushes": false,
+     "allow_deletions": false,
+     "required_conversation_resolution": true
+   }
+   JSON
+   ```
+
+   There is deliberately no required review: a sole maintainer cannot approve
+   their own pull request, so requiring one would block every merge. Add it when
+   a second person can review.
+
+   Once this is in place, direct pushes to `main` are rejected, including your
+   own — that is the protection working, not a misconfiguration. Work through
+   short-lived branches and pull requests:
+
+   ```bash
+   git switch -c fix/some-change
+   git commit -am "fix: ..."
+   git push -u origin fix/some-change
+   gh pr create --fill
+   gh pr merge --squash --delete-branch
+   ```
 
 3. **Settings → Actions → General**: set *Workflow permissions* to
    **Read repository contents**. Only `release.yml` escalates, and only on tag
    pushes.
 
 4. **Settings → Code security**: enable **Dependabot alerts**, **secret
-   scanning** and **secret scanning push protection**. Code scanning is free on
-   public repositories; on a private one it needs GitHub Advanced Security, and
-   the `Security` workflow skips CodeQL until you either make the repository
-   public or set the `ENABLE_CODE_SCANNING` repository variable to `true`. No secret has ever been
+   scanning** and **secret scanning push protection**:
+
+   ```bash
+   gh api -X PUT repos/edanko/safetech-go/vulnerability-alerts
+   gh api -X PATCH repos/edanko/safetech-go --input - <<'JSON'
+   {
+     "security_and_analysis": {
+       "secret_scanning": {"status": "enabled"},
+       "secret_scanning_push_protection": {"status": "enabled"}
+     }
+   }
+   JSON
+   ```
+
+   Code scanning is free on public repositories; on a private one it needs
+   GitHub Advanced Security, and the `Security` workflow skips CodeQL until you
+   either make the repository public or set the `ENABLE_CODE_SCANNING`
+   repository variable to `true`.
+
+   On GitHub Free, secret scanning, push protection and branch protection are
+   only available on public repositories, so a private staging repository will
+   accept neither setting. That is why the private-then-public order works: the
+   pipeline is exercised privately, then the settings are applied once the
+   repository is public. No secret has ever been
    committed (the repository started empty), but push protection is what keeps
    the `STCA_PASSWORD` class of accident from happening later.
 
@@ -114,7 +170,7 @@ Before a service depends on this module in production:
 
 | Cadence | Task |
 | --- | --- |
-| Weekly | Review Renovate PRs; the Go floor bump in particular is worth a look, since raising it drops older toolchains for every consumer |
+| Weekly | Review Renovate PRs. The `go` directive is excluded from them on purpose: bumping it drops older toolchains for every consumer, so it is a decision, not an update |
 | When the Security tab turns red | Triage gosec/CodeQL findings. `gosec` runs with `-no-fail` on purpose, so nothing blocks a merge; the SARIF results are the signal |
 | When a test fails on the coverage floor | The floor is 90% and the package sits around 96%; a drop means new code arrived without tests |
 | On your credential policy | Rotate the CA service-account password and the Keycloak client secret |
@@ -122,13 +178,10 @@ Before a service depends on this module in production:
 
 ## Known gaps
 
-Two recommendations are not wired yet, on purpose, because both need repository
-state that does not exist before the first push:
-
-- **Renovate can raise the Go floor.** The `gomod` manager updates the `go`
-  directive, so `go 1.27.0` will drift upwards and silently drop older
-  toolchains. Add a `packageRules` entry matching the `golang-version`
-  dependency type and set `automerge: false` if the floor must stay put.
+- **The Renovate app still has to be installed** from its GitHub App page; there
+  is no command-line equivalent. Until it is, `renovate.json` is inert and no
+  dependency PRs appear. It already excludes the `go` directive, so installing
+  it will not move the floor.
 - **No scheduled live-CA test.** Every workflow is push/PR or manual, so vendor
   API drift is only caught when someone runs `make test-integration`. A weekly
   `schedule:` trigger gated on the `STCA_*` secrets would close that gap.
