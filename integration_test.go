@@ -53,7 +53,7 @@ func TestIntegrationIssueAndRevoke(t *testing.T) {
 
 	csr := testutil.CSR(t, "integration-test.example.com")
 
-	cert, err := client.CreateCertificateContext(t.Context(), csr, template)
+	cert, err := client.CreateCertificate(t.Context(), csr, template)
 	if err != nil {
 		t.Fatalf("CreateCertificate: %v", err)
 	}
@@ -81,11 +81,11 @@ func TestIntegrationIssueAndRevoke(t *testing.T) {
 		t.Errorf("ParsePEM: %v", err)
 	}
 
-	if err := client.RevokeCertificateContext(t.Context(), cert.ID); err != nil {
+	if err := client.RevokeCertificate(t.Context(), cert.ID); err != nil {
 		t.Fatalf("RevokeCertificate: %v", err)
 	}
 
-	if err := client.RevokeCertificateContext(t.Context(), cert.ID); err == nil {
+	if err := client.RevokeCertificate(t.Context(), cert.ID); err == nil {
 		t.Fatal("expected the second revocation to fail")
 	}
 }

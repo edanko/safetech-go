@@ -28,16 +28,6 @@ import (
 	"uuid"
 )
 
-// Adapter is the interface a SafeTech CA client satisfies.
-type Adapter interface {
-	// CreateCertificate issues a certificate from a PEM-encoded PKCS#10
-	// request using the named CA template.
-	CreateCertificate(csrPEM []byte, templateName string) (*UserCertificate, error)
-	// RevokeCertificate revokes the certificate previously returned by
-	// CreateCertificate.
-	RevokeCertificate(certificateID uuid.UUID) error
-}
-
 // RevokeReason is an RFC 5280 revocation reason code used by the CA API.
 type RevokeReason string
 
@@ -152,11 +142,7 @@ const (
 	maxSearchPages = 10
 )
 
-// Compile-time interface check.
-var _ Adapter = (*Client)(nil)
-
-// Client is a SafeTech CA REST client. It implements [Adapter] and is safe for
-// concurrent use.
+// Client is a SafeTech CA REST client. It is safe for concurrent use.
 type Client struct {
 	cfg       Config
 	apiBase   string
@@ -274,21 +260,14 @@ func insecureTLSConfig(base *tls.Config) *tls.Config {
 }
 
 // CreateCertificate issues a certificate from a PEM-encoded PKCS#10 request
-// using the named CA template. It implements [Adapter].
+// using the named CA template.
 //
 // The request is validated locally before it is sent: the PEM block must decode
 // as a certificate request and its self-signature must verify, otherwise an
 // error wrapping [ErrInvalidCSR] is returned.
 //
-// CreateCertificate uses context.Background. Use
-// [Client.CreateCertificateContext] to propagate a caller context.
-func (c *Client) CreateCertificate(csrPEM []byte, templateName string) (*UserCertificate, error) {
-	return c.CreateCertificateContext(context.Background(), csrPEM, templateName)
-}
-
-// CreateCertificateContext is [Client.CreateCertificate] with a caller-supplied
-// context.
-func (c *Client) CreateCertificateContext(
+// The caller's context bounds the whole operation, including authentication.
+func (c *Client) CreateCertificate(
 	ctx context.Context,
 	csrPEM []byte,
 	templateName string,
@@ -323,20 +302,12 @@ func (c *Client) CreateCertificateContext(
 }
 
 // RevokeCertificate revokes the certificate created for the given request id.
-// It implements [Adapter].
 //
 // The API revokes certificates by serial number, so the serial is resolved from
 // the request id through the certificate search endpoint first.
 //
-// RevokeCertificate uses context.Background. Use
-// [Client.RevokeCertificateContext] to propagate a caller context.
-func (c *Client) RevokeCertificate(certificateID uuid.UUID) error {
-	return c.RevokeCertificateContext(context.Background(), certificateID)
-}
-
-// RevokeCertificateContext is [Client.RevokeCertificate] with a caller-supplied
-// context.
-func (c *Client) RevokeCertificateContext(ctx context.Context, certificateID uuid.UUID) error {
+// The caller's context bounds the whole operation, including authentication.
+func (c *Client) RevokeCertificate(ctx context.Context, certificateID uuid.UUID) error {
 	if certificateID == uuid.Nil() {
 		return errors.New("safetech: certificate id is required")
 	}

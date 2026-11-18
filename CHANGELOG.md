@@ -23,10 +23,8 @@ First public release.
   I/O until the first operation.
 - `UserCertificate` carrying `ID`, serial number, PEM, template name, status and
   validity window, with `ParsePEM` returning an `*x509.Certificate`.
-- `Adapter` interface implemented by `*Client`, for dependency injection and
-  test fakes.
-- Context-aware variants: `CreateCertificateContext` and
-  `RevokeCertificateContext`.
+- Context-first API: `CreateCertificate` and `RevokeCertificate` take a
+  `context.Context` as their first argument.
 - Local CSR validation before a request is sent: PEM decode, parse, and
   self-signature check.
 - RFC 5280 revocation reasons (`RevokeReason`) selected through
@@ -48,6 +46,8 @@ First public release.
 - The module targets Go 1.27 and uses the standard-library `uuid` package
   (`UUID`, `NewV4`/`NewV7`, `Parse`, `Max`, comparison and text marshalling).
   It has no third-party dependencies.
+- The public API is the concrete `*Client`; no interface is exported, so
+  callers declare the narrow interface they need.
 - `*Client` is safe for concurrent use; the access token is shared behind a
   mutex.
 - The integration test runs only behind the `integration` build tag and reads

@@ -35,8 +35,8 @@ publication resolves some of them, as noted under Status.
   and the changelog records user-visible changes.
 - Only public product names appear (SafeTech CA, `ca-core`, Keycloak).
   Infrastructure is represented by placeholder URLs and template names.
-- Local CSR validation, typed errors, context variants and the `Adapter`
-  interface are documented as public behavior.
+- Local CSR validation, typed errors and the context-first method signatures
+  are documented as public behavior; the library exports no interface.
 - CI details belong to `docs/CI.md`; the README links to it instead of
   duplicating the workflow.
 

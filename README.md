@@ -19,7 +19,7 @@ Vendor documentation (Russian):
   request is sent; invalid requests return `ErrInvalidCSR`.
 - Revokes certificates by the ID returned at issuance, with RFC 5280 revocation reasons.
 - Authenticates against Keycloak with cached, automatically refreshed access tokens.
-- Provides context-aware variants of every operation.
+- Takes a `context.Context` on every operation, so cancellation and deadlines propagate.
 - Returns sentinel errors for `errors.Is` and typed `*HTTPError` / `*APIError` values for `errors.As`.
 - Is safe for concurrent use.
 - Depends only on the standard library.
@@ -45,6 +45,7 @@ revokes the certificate.
 package main
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"log"
@@ -55,6 +56,8 @@ import (
 )
 
 func main() {
+	ctx := context.Background()
+
 	csrPEM, err := os.ReadFile("device.csr")
 	if err != nil {
 		log.Fatalf("read CSR: %v", err)
@@ -69,7 +72,7 @@ func main() {
 		log.Fatalf("create client: %v", err)
 	}
 
-	cert, err := client.CreateCertificate(csrPEM, "MY_TEMPLATE")
+	cert, err := client.CreateCertificate(ctx, csrPEM, "MY_TEMPLATE")
 	if err != nil {
 		log.Fatalf("issue certificate: %v", err)
 	}
@@ -78,7 +81,7 @@ func main() {
 	fmt.Printf("valid:  %s .. %s\n",
 		cert.NotBefore.Format(time.RFC3339), cert.NotAfter.Format(time.RFC3339))
 
-	if err := client.RevokeCertificate(cert.ID); err != nil {
+	if err := client.RevokeCertificate(ctx, cert.ID); err != nil {
 		switch {
 		case errors.Is(err, safetech.ErrCertificateRevoked):
 			log.Printf("certificate was already revoked: %v", err)
@@ -143,49 +146,12 @@ client, the same client the SafeTech CA web UI uses.
 - Credentials are taken from the configuration only. The client never logs the
   password or the access token.
 
-## Adapter interface
-
-```go
-type Adapter interface {
-	CreateCertificate(csrPEM []byte, templateName string) (*UserCertificate, error)
-	RevokeCertificate(certificateID uuid.UUID) error
-}
-```
-
-`uuid` here is the Go 1.27 standard-library package. `*Client` implements
-`Adapter`; the interface exists so that call sites which need only these two
-operations do not depend on the HTTP client and can be tested with a fake.
-
-Pass the client (or any other implementation) into your own constructor:
-
-```go
-type Enroller struct {
-	ca safetech.Adapter
-}
-
-func NewEnroller(ca safetech.Adapter) *Enroller { return &Enroller{ca: ca} }
-```
-
-```go
-client, err := safetech.New(cfg)
-if err != nil {
-	return err
-}
-enroller := NewEnroller(client)
-```
-
-The `Adapter` methods have no `context.Context` parameter and use
-`context.Background()` internally. When you need cancellation or deadlines,
-keep a `*Client` and call `CreateCertificateContext` or
-`RevokeCertificateContext` instead.
-
 ## Revocation
 
 The `ca-core` API revokes certificates by serial number, while
-`CreateCertificate` returns a request ID. `RevokeCertificate` and
-`RevokeCertificateContext` resolve the serial through the certificate search
-endpoint first, then submit the status change with the configured
-`RevokeReason`. Revoking an already revoked certificate returns
+`CreateCertificate` returns a request ID. `RevokeCertificate` resolves the
+serial through the certificate search endpoint first, then submits the status
+change with the configured `RevokeReason`. Revoking an already revoked certificate returns
 `ErrCertificateRevoked`; an ID with no matching certificate returns
 `ErrCertificateNotFound`.
 

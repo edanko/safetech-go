@@ -1,9 +1,8 @@
 # Examples
 
 Recipes for common tasks. Snippets are partial: they assume surrounding function
-scope (`err`, `cert`, `cfg`) and imports (`context`, `errors`, `log`, `os`,
-`time`, `uuid`). `Adapter` methods use `context.Background()`; hold a `*Client`
-when you need timeouts or cancellation. Placeholders: `https://ca.example.com:7443`,
+scope (`ctx`, `err`, `cert`, `cfg`) and imports (`context`, `errors`, `log`,
+`os`, `time`). Placeholders: `https://ca.example.com:7443`,
 `https://keycloak.example.com/realms/ca`, `MY_TEMPLATE`.
 
 ## Issue a certificate from a CSR file
@@ -21,7 +20,7 @@ client, err := safetech.New(safetech.Config{
 if err != nil {
 	return err
 }
-cert, err := client.CreateCertificate(csrPEM, "MY_TEMPLATE")
+cert, err := client.CreateCertificate(ctx, csrPEM, "MY_TEMPLATE")
 if err != nil {
 	return err
 }
@@ -34,7 +33,7 @@ log.Printf("serial=%s valid %s..%s", cert.SerialNumber, cert.NotBefore, cert.Not
 // The client is constructed with RevokeReason: safetech.RevokeReasonKeyCompromise.
 ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 defer cancel()
-if err := client.RevokeCertificateContext(ctx, cert.ID); err != nil {
+if err := client.RevokeCertificate(ctx, cert.ID); err != nil {
 	if errors.Is(err, safetech.ErrCertificateRevoked) {
 		log.Printf("already revoked")
 	} else {
@@ -43,28 +42,22 @@ if err := client.RevokeCertificateContext(ctx, cert.ID); err != nil {
 }
 ```
 
-## Wire the Adapter interface into an application
+## Keep your own interface for dependency injection
+
+The library ships a concrete `*Client` and no interface. Declare the narrow
+interface your application needs where you consume it; `*Client` satisfies it,
+and tests can substitute a fake.
 
 ```go
-type Enroller struct{ ca safetech.Adapter }
-
-func NewEnroller(ca safetech.Adapter) *Enroller { return &Enroller{ca: ca} }
-
-func (e *Enroller) Enroll(csrPEM []byte) (*safetech.UserCertificate, error) {
-	return e.ca.CreateCertificate(csrPEM, "MY_TEMPLATE")
+type CertificateIssuer interface {
+	CreateCertificate(ctx context.Context, csrPEM []byte, templateName string) (*safetech.UserCertificate, error)
 }
 
-client, err := safetech.New(cfg) // *Client implements safetech.Adapter
-if err != nil {
-	return err
+type Enroller struct{ ca CertificateIssuer }
+
+func NewEnroller(ca CertificateIssuer) *Enroller { return &Enroller{ca: ca} }
+
+func (e *Enroller) Enroll(ctx context.Context, csrPEM []byte) (*safetech.UserCertificate, error) {
+	return e.ca.CreateCertificate(ctx, csrPEM, "MY_TEMPLATE")
 }
-enroller := NewEnroller(client)
-
-type fakeCA struct{} // test double with the same two methods
-
-func (fakeCA) CreateCertificate([]byte, string) (*safetech.UserCertificate, error) {
-	return &safetech.UserCertificate{}, nil
-}
-
-func (fakeCA) RevokeCertificate(uuid.UUID) error { return nil }
 ```

@@ -99,7 +99,7 @@ Keycloak realm through the gateway's `/api/ui-config` endpoint.
 
 - Use [Conventional Commits](https://www.conventionalcommits.org/): `feat:`,
   `fix:`, `docs:`, `test:`, `refactor:`, `chore:`, `security:`. For example:
-  - `feat: add CreateCertificateContext`
+  - `feat: add certificate search pagination`
   - `fix: return ErrCertificateNotFound when the search has no match`
   - `docs: document RevokeReason`
 - Renovate opens dependency updates with the same convention

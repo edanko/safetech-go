@@ -97,9 +97,9 @@ func TestCreateCertificate(t *testing.T) {
 	f := newFakeCA(t)
 	client := f.newClient(t)
 
-	cert, err := client.CreateCertificateContext(t.Context(), testutil.CSR(t, "device.example.com"), testTemplate)
+	cert, err := client.CreateCertificate(t.Context(), testutil.CSR(t, "device.example.com"), testTemplate)
 	if err != nil {
-		t.Fatalf("CreateCertificateContext: %v", err)
+		t.Fatalf("CreateCertificate: %v", err)
 	}
 
 	if want := uuid.MustParse(testRequestID); cert.ID != want {
@@ -254,9 +254,9 @@ func TestCreateCertificateRejectsInvalidInput(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 
-			_, err := client.CreateCertificateContext(t.Context(), test.csr, test.template)
+			_, err := client.CreateCertificate(t.Context(), test.csr, test.template)
 			if err == nil {
-				t.Fatalf("CreateCertificateContext(%q) = nil error, want %q", name, test.want)
+				t.Fatalf("CreateCertificate(%q) = nil error, want %q", name, test.want)
 			}
 
 			if !strings.Contains(err.Error(), test.want) {
@@ -285,7 +285,7 @@ func TestCreateCertificateAPIError(t *testing.T) {
 		})
 	})
 
-	_, err := f.newClient(t).CreateCertificateContext(
+	_, err := f.newClient(t).CreateCertificate(
 		t.Context(), testutil.CSR(t, "device.example.com"), testTemplate,
 	)
 	if err == nil {
@@ -314,7 +314,7 @@ func TestCreateCertificateHTTPError(t *testing.T) {
 		http.Error(w, "gateway unavailable", http.StatusBadGateway)
 	})
 
-	_, err := f.newClient(t).CreateCertificateContext(
+	_, err := f.newClient(t).CreateCertificate(
 		t.Context(), testutil.CSR(t, "device.example.com"), testTemplate,
 	)
 	if err == nil {
@@ -343,8 +343,8 @@ func TestRevokeCertificate(t *testing.T) {
 		cfg.RevokeReason = RevokeReasonKeyCompromise
 	})
 
-	if err := client.RevokeCertificateContext(t.Context(), uuid.MustParse(testRequestID)); err != nil {
-		t.Fatalf("RevokeCertificateContext: %v", err)
+	if err := client.RevokeCertificate(t.Context(), uuid.MustParse(testRequestID)); err != nil {
+		t.Fatalf("RevokeCertificate: %v", err)
 	}
 
 	searchRequests := f.requestsTo(apiPath(pathSearch))
@@ -393,7 +393,7 @@ func TestRevokeCertificateErrors(t *testing.T) {
 		f := newFakeCA(t)
 		f.setSearchContent([]certPayload{{Status: statusRevoked, SerialNumber: testSerial}}, 1)
 
-		err := f.newClient(t).RevokeCertificateContext(t.Context(), uuid.MustParse(testRequestID))
+		err := f.newClient(t).RevokeCertificate(t.Context(), uuid.MustParse(testRequestID))
 		if !errors.Is(err, ErrCertificateRevoked) {
 			t.Errorf("error = %v, want it to wrap ErrCertificateRevoked", err)
 		}
@@ -405,7 +405,7 @@ func TestRevokeCertificateErrors(t *testing.T) {
 		f := newFakeCA(t)
 		f.setSearchContent(nil, 0)
 
-		err := f.newClient(t).RevokeCertificateContext(t.Context(), uuid.MustParse(testRequestID))
+		err := f.newClient(t).RevokeCertificate(t.Context(), uuid.MustParse(testRequestID))
 		if !errors.Is(err, ErrCertificateNotFound) {
 			t.Errorf("error = %v, want it to wrap ErrCertificateNotFound", err)
 		}
@@ -416,7 +416,7 @@ func TestRevokeCertificateErrors(t *testing.T) {
 
 		f := newFakeCA(t)
 
-		err := f.newClient(t).RevokeCertificateContext(t.Context(), uuid.Nil())
+		err := f.newClient(t).RevokeCertificate(t.Context(), uuid.Nil())
 		if err == nil || !strings.Contains(err.Error(), "certificate id is required") {
 			t.Errorf("error = %v, want it to report a missing certificate id", err)
 		}
@@ -428,7 +428,7 @@ func TestRevokeCertificateErrors(t *testing.T) {
 		f := newFakeCA(t)
 		f.setRevokedStatus(statusActive)
 
-		err := f.newClient(t).RevokeCertificateContext(t.Context(), uuid.MustParse(testRequestID))
+		err := f.newClient(t).RevokeCertificate(t.Context(), uuid.MustParse(testRequestID))
 		if err == nil || !strings.Contains(err.Error(), "unexpected status") {
 			t.Errorf("error = %v, want it to report an unexpected status", err)
 		}
@@ -464,8 +464,8 @@ func TestRevokeCertificatePaginatesSearch(t *testing.T) {
 		writeJSON(w, http.StatusOK, map[string]any{"errorCode": 0, "payload": payload})
 	})
 
-	if err := f.newClient(t).RevokeCertificateContext(t.Context(), uuid.MustParse(testRequestID)); err != nil {
-		t.Fatalf("RevokeCertificateContext: %v", err)
+	if err := f.newClient(t).RevokeCertificate(t.Context(), uuid.MustParse(testRequestID)); err != nil {
+		t.Fatalf("RevokeCertificate: %v", err)
 	}
 
 	if got := len(f.requestsTo(apiPath("/certs/" + testSerial + "/change_status"))); got != 1 {
@@ -488,7 +488,7 @@ func TestConcurrentRequestsShareOneToken(t *testing.T) {
 
 	for i := range calls {
 		wg.Go(func() {
-			_, errs[i] = client.CreateCertificateContext(t.Context(), csr, testTemplate)
+			_, errs[i] = client.CreateCertificate(t.Context(), csr, testTemplate)
 		})
 	}
 
@@ -526,7 +526,7 @@ func TestTLSSkipVerify(t *testing.T) {
 			cfg.AuthURL = f.authURL()
 		})
 
-		if _, err := client.CreateCertificateContext(t.Context(), csr, testTemplate); err == nil {
+		if _, err := client.CreateCertificate(t.Context(), csr, testTemplate); err == nil {
 			t.Fatal("expected the self-signed certificate to be rejected")
 		}
 	})
@@ -539,8 +539,8 @@ func TestTLSSkipVerify(t *testing.T) {
 			cfg.TLSSkipVerify = true
 		})
 
-		if _, err := client.CreateCertificateContext(t.Context(), csr, testTemplate); err != nil {
-			t.Fatalf("CreateCertificateContext: %v", err)
+		if _, err := client.CreateCertificate(t.Context(), csr, testTemplate); err != nil {
+			t.Fatalf("CreateCertificate: %v", err)
 		}
 	})
 }

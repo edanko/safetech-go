@@ -26,26 +26,20 @@ ordered by value.
 
 ### P0 — correctness and API shape
 
-1. **Give `Adapter` a `context.Context`.** The interface is fixed by the host
-   application, so it currently calls `context.Background()` internally.
-   `CreateCertificateContext` / `RevokeCertificateContext` exist as the migration
-   path. The next major version should take `ctx` on the interface methods and
-   drop the `Context` variants. Cost: one signature change in the host app.
-
-2. **Narrow the token mutex.** `accessToken` holds the client-wide mutex across
+1. **Narrow the token mutex.** `accessToken` holds the client-wide mutex across
    the Keycloak round trip, so every request blocks while one refresh is in
    flight. A refresh-in-progress channel (or `singleflight`) that only serialises
    refreshes would keep cache hits lock-free. No new dependency is needed for the
    channel version.
 
-3. **Confirm the timestamp zone.** The vendor API article shows the same
+2. **Confirm the timestamp zone.** The vendor API article shows the same
    zone-less layout the parser expects (`2026-04-20T18:39:51.89110`), so the
    format is settled. The intended zone is still undocumented: the client reads
    the values as UTC, and if the CA emits server-local time instead,
    `NotBefore`/`NotAfter` shift by that offset. Confirm with the vendor, then
    document it or add an explicit `Config.TimeZone`.
 
-4. **Confirm the serial-number encoding.** Revocation builds
+3. **Confirm the serial-number encoding.** Revocation builds
    `/certs/{serial}/change_status` from the `serialNumber` field, URL-escaped as
    returned. If the API expects a decimal or colon-separated form there, this
    breaks for serials with a different representation. Add a fixture-based test
@@ -53,52 +47,52 @@ ordered by value.
 
 ### P1 — robustness
 
-5. **Support addressing `ca-core` directly.** `Config.BaseURL` must be a
+4. **Support addressing `ca-core` directly.** `Config.BaseURL` must be a
    gateway endpoint because the `ca-core/api/v1` prefix is appended
    unconditionally. The vendor article addresses `ca-core` directly as
    `http://<ca-core-host>:8081/api/v1`, which needs a configurable prefix (or a
    `Config.APIPrefix` field). Today the workaround is the gateway.
 
-6. **Retries.** Transient `5xx`/`429` responses surface immediately. Retry with
+5. **Retries.** Transient `5xx`/`429` responses surface immediately. Retry with
    backoff and `Retry-After` support for token requests and discovery (both
    idempotent). Do **not** retry `POST /certs/issue` blindly: it is not
    idempotent and may issue duplicate certificates.
 
-7. **Idempotent revocation.** `RevokeCertificate` reports
+6. **Idempotent revocation.** `RevokeCertificate` reports
    `ErrCertificateRevoked` for an already-revoked certificate. Reconciliation
    loops usually want that to be a success; add an option
    (`RevokeOptions{AlreadyRevoked: ...}`) instead of forcing callers to special-case
    the sentinel.
 
-8. **Fuzz the parsers.** `decodeEnvelope` and `normalizeCSR` parse untrusted
+7. **Fuzz the parsers.** `decodeEnvelope` and `normalizeCSR` parse untrusted
    input. Two `Fuzz*` functions would be cheap and catch panics or runaway
    allocations.
 
-9. **`stacktrace` in the envelope.** The CA includes a server stack trace on
+8. **`stacktrace` in the envelope.** The CA includes a server stack trace on
    errors; it is deliberately ignored. Keep it that way (server internals are not
    ours to surface) and state it in the `APIError` docs.
 
-10. **Certificate payload fallbacks.** Issuance requires `certificateInfo.pem`.
+9. **Certificate payload fallbacks.** Issuance requires `certificateInfo.pem`.
    Some deployments return the certificate only in
    `certificateRequest.certificate`. Support both, with the PEM/DER question
    settled by a fixture test.
 
 ### P2 — structure and tooling
 
-11. **Keep the package flat.** One vendored API, ~900 lines: a `internal/` split
+10. **Keep the package flat.** One vendored API, ~900 lines: a `internal/` split
     or a DTO subpackage would add indirection without a second consumer. Revisit
     if a second SafeTech API surface is added.
 
-12. **Reconsider the Go floor.** Using the standard-library `uuid` from Go 1.27
+11. **Reconsider the Go floor.** Using the standard-library `uuid` from Go 1.27
     removes the last dependency but requires Go 1.27+ from every consumer.
     `github.com/google/uuid` would lower the floor to Go 1.21 at the cost of one
     dependency. Decide before tagging `v1.0.0`; `v0.x` is the right time to
     change it.
 
-13. **Example tests.** `ExampleClient_CreateCertificate` in
+12. **Example tests.** `ExampleClient_CreateCertificate` in
     `example_test.go` renders in godoc and is compiled, so the README example
     cannot rot.
 
-14. **Coverage signal.** Cover the three error branches that still matter
+13. **Coverage signal.** Cover the three error branches that still matter
     (`discoverAuth` decode failure, `requestToken` malformed JSON, `New` with a
     malformed `BaseURL`) before adding a threshold gate.
