@@ -1,0 +1,44 @@
+# GoReleaser v2 configuration for a LIBRARY.
+#
+# This module ships no main package, so there is nothing to compile, archive or
+# upload. A release is only: a GitHub Release whose body is the git changelog.
+# Consumers fetch the code with `go get github.com/edanko/safetech@vX.Y.Z`.
+version: 2
+
+# GoReleaser v2 fails when there is no build at all, so declare exactly one
+# deliberately skipped build. `archives` has no `skip` key - it is omitted
+# instead, and with zero artifacts no archive/checksum/publish pipes produce
+# anything to upload.
+builds:
+  - skip: true
+
+changelog:
+  sort: asc
+  groups:
+    - title: Features
+      regexp: '^.*?feat(\([[:word:]]+\))??!?:.+$'
+      order: 0
+    - title: Bug fixes
+      regexp: '^.*?fix(\([[:word:]]+\))??!?:.+$'
+      order: 1
+    - title: Performance
+      regexp: '^.*?perf(\([[:word:]]+\))??!?:.+$'
+      order: 2
+    - title: Documentation
+      regexp: '^.*?docs(\([[:word:]]+\))??!?:.+$'
+      order: 3
+    - title: Other changes
+      order: 999
+  filters:
+    exclude:
+      - '^docs(\([[:word:]]+\))?:'
+      - '^test(\([[:word:]]+\))?:'
+      - '^ci(\([[:word:]]+\))?:'
+      - '^chore(\([[:word:]]+\))?:'
+      - '^style(\([[:word:]]+\))?:'
+      - '^Merge pull request'
+      - '^Merge branch'
+
+release:
+  draft: false
+  prerelease: auto

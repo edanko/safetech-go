@@ -1,0 +1,61 @@
+# Changelog
+
+All notable changes to this project are documented in this file.
+
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
+and this project adheres to
+[Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+## [Unreleased]
+
+Nothing yet. Changes for the next release are added here.
+
+## [0.1.0] - 2026-11-18
+
+First public release.
+
+### Added
+
+- `Client` for the SafeTech CA `ca-core` REST API: certificate issuance from a
+  PEM-encoded PKCS#10 CSR against a named CA template, and certificate
+  revocation.
+- `New` constructor that validates the configuration and performs no network
+  I/O until the first operation.
+- `UserCertificate` carrying `ID`, serial number, PEM, template name, status and
+  validity window, with `ParsePEM` returning an `*x509.Certificate`.
+- `Adapter` interface implemented by `*Client`, for dependency injection and
+  test fakes.
+- Context-aware variants: `CreateCertificateContext` and
+  `RevokeCertificateContext`.
+- Local CSR validation before a request is sent: PEM decode, parse, and
+  self-signature check.
+- RFC 5280 revocation reasons (`RevokeReason`) selected through
+  `Config.RevokeReason`.
+- Keycloak authentication with automatic endpoint discovery
+  (`/api/ui-config`), access-token caching, refresh-token renewal, and a
+  password-grant fallback.
+- Typed errors: `ErrInvalidCSR`, `ErrCertificateNotFound` and
+  `ErrCertificateRevoked` for `errors.Is`; `HTTPError` and `APIError` for
+  `errors.As`.
+- `Version` variable (default `dev`), settable with
+  `-ldflags "-X github.com/edanko/safetech.Version=v1.2.3"`.
+
+### Changed
+
+- The module targets Go 1.27 and uses the standard-library `uuid` package
+  (`UUID`, `NewV4`/`NewV7`, `Parse`, `Max`, comparison and text marshalling).
+  It has no third-party dependencies.
+- `*Client` is safe for concurrent use; the access token is shared behind a
+  mutex.
+- The integration test runs only behind the `integration` build tag and reads
+  its configuration from `STCA_BASE_URL`, `STCA_REALM_URL`, `STCA_USERNAME` and
+  `STCA_PASSWORD`.
+
+### Security
+
+- Removed credentials, internal hostnames and internal template names that were
+  present in the working tree before the first public release; the exposed
+  credentials must be rotated.
+- The client never logs the password or the access token.
+- `TLSSkipVerify` is documented as test-only and must never be enabled in
+  production.

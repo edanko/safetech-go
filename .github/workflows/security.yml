@@ -1,0 +1,82 @@
+name: Security
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+# Least privilege by default; only the SARIF-uploading jobs escalate.
+permissions:
+  contents: read
+
+jobs:
+  govulncheck:
+    name: govulncheck
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      # The action checks the repository out itself (repo-checkout: true) and
+      # installs the requested Go toolchain, so no setup steps are needed.
+      - name: Run govulncheck
+        uses: golang/govulncheck-action@v1
+        with:
+          go-version-input: "1.27"
+          go-package: ./...
+          output-format: text
+
+  gosec:
+    name: gosec
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      # -no-fail keeps the job green so the SARIF always uploads; findings are
+      # triaged in the Security tab instead of blocking merges.
+      - name: Run gosec
+        uses: securego/gosec@v2.30.0
+        with:
+          args: "-no-fail -fmt sarif -out gosec.sarif ./..."
+
+      # Fork PRs get a read-only GITHUB_TOKEN, so the upload is skipped there.
+      - name: Upload gosec SARIF
+        if: >-
+          always() && (github.event_name != 'pull_request' ||
+          github.event.pull_request.head.repo.full_name == github.repository)
+        uses: github/codeql-action/upload-sarif@v4
+        with:
+          sarif_file: gosec.sarif
+
+  codeql:
+    name: CodeQL
+    runs-on: ubuntu-latest
+    # Same GITHUB_TOKEN limit as above: code scanning uploads need a token with
+    # security-events: write, which pull requests from forks do not have.
+    if: >-
+      github.event_name != 'pull_request' ||
+      github.event.pull_request.head.repo.full_name == github.repository
+    permissions:
+      contents: read
+      security-events: write
+      actions: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v4
+        with:
+          languages: go
+          config-file: .github/codeql/codeql-config.yml
+
+      - name: Autobuild
+        uses: github/codeql-action/autobuild@v4
+
+      - name: Analyze
+        uses: github/codeql-action/analyze@v4

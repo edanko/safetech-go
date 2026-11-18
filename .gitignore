@@ -1,0 +1,45 @@
+# Go build artifacts
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+/coverage.html
+
+# Coverage and profiling output
+coverage.out
+coverage.txt
+*.prof
+
+# Build output
+/dist/
+/bin/
+
+# Vendored dependencies (the module has none; kept so a local vendor tree is never committed)
+/vendor/
+
+# IDE and editor files
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Environment files
+.env
+.env.*
+
+# Certificate and key material: never commit credentials
+*.pem
+*.key
+*.crt
+*.csr
+
+# Local secrets
+secrets/**

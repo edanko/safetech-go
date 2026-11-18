@@ -1,0 +1,12 @@
+name: "CodeQL config"
+
+# Widen coverage beyond the default query set. security-extended adds queries
+# with lower precision but a higher chance of catching real issues.
+queries:
+  - uses: security-extended
+
+# Documentation cannot contain executable Go; keeping it out of the analysis
+# keeps the CodeQL database smaller and the run faster.
+paths-ignore:
+  - "docs/**"
+  - "**/*.md"

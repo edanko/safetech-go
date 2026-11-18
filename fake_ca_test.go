@@ -1,0 +1,342 @@
+package safetech
+
+import (
+	"bytes"
+	"encoding/json"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"net/url"
+	"slices"
+	"strings"
+	"sync"
+	"testing"
+
+	"github.com/edanko/safetech/internal/testutil"
+)
+
+// Fixtures used by the fake CA.
+const (
+	testRequestID    = "6f9d7e3a-1c2b-4d5e-8f90-112233445566"
+	testSerial       = "0A1B2C3D"
+	testAccessToken  = "test-access-token"
+	testRefreshToken = "test-refresh-token"
+	testTemplate     = "MY_TEMPLATE"
+	testUsername     = "test-user"
+	testPassword     = "test-password"
+)
+
+// recordedRequest is one request observed by the fake CA.
+type recordedRequest struct {
+	method string
+	path   string
+	header http.Header
+	body   []byte
+}
+
+// fakeCA is an in-process stand-in for the CA gateway and its Keycloak realm.
+// Handlers may be overridden per test to simulate failures. All mutable state
+// is guarded by mu so tests stay race-free.
+type fakeCA struct {
+	server *httptest.Server
+
+	mu            sync.Mutex
+	requests      []recordedRequest
+	forms         []url.Values
+	handlers      map[string]http.HandlerFunc
+	expiresIn     int
+	rejectRefresh bool
+	searchContent []certPayload
+	searchTotal   int
+	revokedStatus string
+	issuePEM      string
+}
+
+// newFakeCA starts a fake CA over plain HTTP.
+func newFakeCA(t *testing.T) *fakeCA {
+	t.Helper()
+
+	return newFakeCAWithTLS(t, false)
+}
+
+// newFakeCAWithTLS starts a fake CA, optionally over TLS with a self-signed
+// certificate.
+func newFakeCAWithTLS(t *testing.T, useTLS bool) *fakeCA {
+	t.Helper()
+
+	f := &fakeCA{
+		handlers:      make(map[string]http.HandlerFunc),
+		expiresIn:     3600,
+		searchContent: []certPayload{{Status: statusActive, SerialNumber: testSerial}},
+		searchTotal:   1,
+		revokedStatus: statusRevoked,
+		issuePEM:      string(testutil.Certificate(t, "issued.example.com")),
+	}
+
+	mux := http.NewServeMux()
+	mux.HandleFunc(uiConfigPath, f.serveUIConfig)
+	mux.HandleFunc("/realms/", f.serveToken)
+	mux.HandleFunc(apiPath(pathIssue), f.serveIssue)
+	mux.HandleFunc(apiPath(pathSearch), f.serveSearch)
+	mux.HandleFunc(apiPath("/certs/"), f.serveChangeStatus)
+
+	if useTLS {
+		f.server = httptest.NewTLSServer(f.record(mux))
+	} else {
+		f.server = httptest.NewServer(f.record(mux))
+	}
+
+	t.Cleanup(f.server.Close)
+
+	return f
+}
+
+// newClient returns a Client pointed at the fake CA.
+func (f *fakeCA) newClient(t *testing.T, mutate ...func(*Config)) *Client {
+	t.Helper()
+
+	cfg := Config{
+		BaseURL:  f.server.URL,
+		Username: testUsername,
+		Password: testPassword,
+	}
+
+	for _, apply := range mutate {
+		apply(&cfg)
+	}
+
+	client, err := New(cfg)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	return client
+}
+
+// authURL returns the realm URL the client uses when discovery is skipped.
+func (f *fakeCA) authURL() string {
+	return f.server.URL + "/realms/ca"
+}
+
+// setHandler overrides the handler of the endpoint registered under key.
+func (f *fakeCA) setHandler(key string, handler http.HandlerFunc) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	f.handlers[key] = handler
+}
+
+// handler returns the handler registered under key, if any.
+func (f *fakeCA) handler(key string) http.HandlerFunc {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	return f.handlers[key]
+}
+
+// setSearchContent changes the certificate search response.
+func (f *fakeCA) setSearchContent(content []certPayload, total int) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	f.searchContent = content
+	f.searchTotal = total
+}
+
+// setRevokedStatus changes the status reported by the change_status endpoint.
+func (f *fakeCA) setRevokedStatus(status string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	f.revokedStatus = status
+}
+
+// setRejectRefresh makes the token endpoint reject the refresh_token grant.
+func (f *fakeCA) setRejectRefresh(reject bool) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	f.rejectRefresh = reject
+}
+
+// record wraps next, recording every request before it is handled.
+func (f *fakeCA) record(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+
+			return
+		}
+
+		r.Body = io.NopCloser(bytes.NewReader(body))
+
+		f.mu.Lock()
+		f.requests = append(f.requests, recordedRequest{
+			method: r.Method,
+			path:   r.URL.Path,
+			header: r.Header.Clone(),
+			body:   body,
+		})
+		f.mu.Unlock()
+
+		next.ServeHTTP(w, r)
+	})
+}
+
+// requestsTo returns the recorded requests whose path matches exactly.
+func (f *fakeCA) requestsTo(path string) []recordedRequest {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	var matched []recordedRequest
+
+	for _, req := range f.requests {
+		if req.path == path {
+			matched = append(matched, req)
+		}
+	}
+
+	return matched
+}
+
+// tokenForms returns the forms received by the token endpoint.
+func (f *fakeCA) tokenForms() []url.Values {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	return slices.Clone(f.forms)
+}
+
+// apiPath returns the absolute request path of an API endpoint, as the CA
+// gateway exposes it under the ca-core prefix.
+func apiPath(endpoint string) string {
+	return "/" + apiPrefix + endpoint
+}
+
+// writeJSON writes body as a JSON response.
+func writeJSON(w http.ResponseWriter, status int, body any) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+
+	_ = json.NewEncoder(w).Encode(body)
+}
+
+func (f *fakeCA) serveUIConfig(w http.ResponseWriter, r *http.Request) {
+	if handler := f.handler(uiConfigPath); handler != nil {
+		handler(w, r)
+
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"keyCloak": map[string]any{
+			"config": map[string]any{
+				"url":      f.server.URL,
+				"realm":    "ca",
+				"clientId": defaultClientID,
+			},
+		},
+	})
+}
+
+func (f *fakeCA) serveToken(w http.ResponseWriter, r *http.Request) {
+	if handler := f.handler("/realms/"); handler != nil {
+		handler(w, r)
+
+		return
+	}
+
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+
+		return
+	}
+
+	f.mu.Lock()
+	f.forms = append(f.forms, r.PostForm)
+	expiresIn, rejectRefresh := f.expiresIn, f.rejectRefresh
+	f.mu.Unlock()
+
+	if r.PostForm.Get("grant_type") == "refresh_token" && rejectRefresh {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_grant"})
+
+		return
+	}
+
+	writeJSON(w, http.StatusOK, tokenResponse{
+		AccessToken:  testAccessToken,
+		ExpiresIn:    expiresIn,
+		RefreshToken: testRefreshToken,
+	})
+}
+
+func (f *fakeCA) serveIssue(w http.ResponseWriter, r *http.Request) {
+	if handler := f.handler(apiPath(pathIssue)); handler != nil {
+		handler(w, r)
+
+		return
+	}
+
+	var req issueRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+
+		return
+	}
+
+	f.mu.Lock()
+	pemText := f.issuePEM
+	f.mu.Unlock()
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"errorCode":    0,
+		"errorMessage": "",
+		"payload": issuePayload{
+			CertificateInfo: certPayload{
+				Status:       statusActive,
+				SerialNumber: testSerial,
+				PEM:          pemText,
+				NotBefore:    "2026-10-22T18:28:59.00000",
+				NotAfter:     "2027-10-22T18:28:59.00000",
+			},
+			CertificateRequest: reqPayload{ID: testRequestID, Status: "APPROVED"},
+		},
+	})
+}
+
+func (f *fakeCA) serveSearch(w http.ResponseWriter, r *http.Request) {
+	if handler := f.handler(apiPath(pathSearch)); handler != nil {
+		handler(w, r)
+
+		return
+	}
+
+	f.mu.Lock()
+	content, total := f.searchContent, f.searchTotal
+	f.mu.Unlock()
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"errorCode": 0,
+		"payload":   searchPayload{Content: content, TotalItems: total},
+	})
+}
+
+func (f *fakeCA) serveChangeStatus(w http.ResponseWriter, r *http.Request) {
+	if handler := f.handler(apiPath("/certs/")); handler != nil {
+		handler(w, r)
+
+		return
+	}
+
+	f.mu.Lock()
+	status := f.revokedStatus
+	f.mu.Unlock()
+
+	serial := strings.TrimSuffix(strings.TrimPrefix(r.URL.Path, apiPath("/certs/")), "/change_status")
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"errorCode": 0,
+		"payload":   certPayload{Status: status, SerialNumber: serial},
+	})
+}

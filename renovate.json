@@ -1,0 +1,44 @@
+{
+  "extends": [
+    "config:recommended",
+    ":semanticCommits",
+    ":dependencyDashboard",
+    ":automergeRequireAllStatusChecks"
+  ],
+  "enabledManagers": ["gomod", "github-actions"],
+  "labels": ["dependencies"],
+  "rebaseWhen": "behind-base-branch",
+  "schedule": ["every weekend"],
+  "timezone": "Europe/Moscow",
+  "postUpdateOptions": ["gomodTidy"],
+  "packageRules": [
+    {
+      "description": "Go module majors: one PR per dependency, never automerged",
+      "matchManagers": ["gomod"],
+      "matchUpdateTypes": ["major"],
+      "groupName": null,
+      "automerge": false
+    },
+    {
+      "description": "Go module minor/patch/digest updates: one grouped PR",
+      "matchManagers": ["gomod"],
+      "matchUpdateTypes": ["minor", "patch", "digest"],
+      "groupName": "go dependencies (non-major)"
+    },
+    {
+      "description": "GitHub Actions: pin to commit digests, group the update PRs",
+      "matchManagers": ["github-actions"],
+      "pinDigests": true,
+      "groupName": "github actions"
+    },
+    {
+      "description": "Automerge patch and digest updates only, once every status check passes",
+      "matchManagers": ["gomod", "github-actions"],
+      "matchUpdateTypes": ["patch", "digest"],
+      "automerge": true,
+      "automergeType": "pr",
+      "platformAutomerge": true,
+      "ignoreTests": false
+    }
+  ]
+}

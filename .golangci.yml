@@ -1,0 +1,129 @@
+version: "2"
+
+run:
+  timeout: 5m
+  tests: true
+
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0
+
+linters:
+  default: none
+  enable:
+    # Correctness
+    - govet
+    - staticcheck
+    - unused
+    - errcheck
+    - errorlint
+    - nilerr
+    - forcetypeassert
+    - copyloopvar
+    - durationcheck
+    - reassign
+    - wastedassign
+    - ineffassign
+    # Style
+    - gocritic
+    - revive
+    - godot
+    - misspell
+    - dupword
+    - predeclared
+    - errname
+    - asciicheck
+    - whitespace
+    # Complexity
+    - gocyclo
+    - nestif
+    - funlen
+    # Performance
+    - perfsprint
+    - unconvert
+    - goconst
+    # Security and resources
+    - gosec
+    - bidichk
+    - bodyclose
+    - noctx
+    - containedctx
+    - fatcontext
+    # Modernization and meta
+    - modernize
+    - exptostd
+    - intrange
+    - usestdlibvars
+    - nolintlint
+
+  settings:
+    errcheck:
+      check-type-assertions: true
+    funlen:
+      lines: 90
+      statements: 60
+    goconst:
+      min-len: 3
+      min-occurrences: 4
+    gocyclo:
+      min-complexity: 16
+    nestif:
+      min-complexity: 5
+    nolintlint:
+      require-explanation: true
+      require-specific: true
+    revive:
+      rules:
+        - name: blank-imports
+        - name: context-as-argument
+        - name: context-keys-type
+        - name: dot-imports
+        - name: error-return
+        - name: error-strings
+        - name: error-naming
+        - name: exported
+        - name: indent-error-flow
+        - name: package-comments
+        - name: range
+        - name: receiver-naming
+        - name: time-naming
+        - name: unexported-return
+        - name: unused-parameter
+        - name: var-declaration
+        - name: var-naming
+
+  exclusions:
+    generated: lax
+    rules:
+      # Tests may build long table-driven bodies and repeat fixture literals.
+      - path: _test\.go
+        linters:
+          - funlen
+          - goconst
+          - gocyclo
+          - dupl
+          - errcheck
+      # The integration test is compiled only with the integration tag.
+      - path: integration_test\.go
+        linters:
+          - unparam
+    paths:
+      - vendor$
+      - third_party$
+      - examples$
+
+formatters:
+  enable:
+    - gofumpt
+    - goimports
+  settings:
+    gofumpt:
+      extra:
+        group-params: true
+        clothe-returns: true
+  exclusions:
+    generated: lax
+    paths:
+      - third_party$
+      - builtin$
+      - examples$
