@@ -591,3 +591,173 @@ func TestUserCertificateParsePEM(t *testing.T) {
 		})
 	}
 }
+
+func TestListTemplates(t *testing.T) {
+	t.Parallel()
+
+	f := newFakeCA(t)
+
+	templates, err := f.newClient(t).ListTemplates(t.Context())
+	if err != nil {
+		t.Fatalf("ListTemplates: %v", err)
+	}
+
+	if len(templates) != 2 {
+		t.Fatalf("templates = %d, want 2", len(templates))
+	}
+
+	stca := templates[0]
+
+	if stca.Name != testTemplate {
+		t.Errorf("Name = %q, want %q", stca.Name, testTemplate)
+	}
+
+	if stca.ID != "11111111-1111-4111-8111-111111111111" {
+		t.Errorf("ID = %q, want the fixture id", stca.ID)
+	}
+
+	if stca.ProtocolType != TemplateProtocolSTCA {
+		t.Errorf("ProtocolType = %q, want %q", stca.ProtocolType, TemplateProtocolSTCA)
+	}
+
+	if stca.MaxValidityPeriod != 365 {
+		t.Errorf("MaxValidityPeriod = %d, want 365", stca.MaxValidityPeriod)
+	}
+
+	if stca.MinKeySize != 2048 {
+		t.Errorf("MinKeySize = %d, want 2048", stca.MinKeySize)
+	}
+
+	if stca.KeyUsages != 160 {
+		t.Errorf("KeyUsages = %d, want 160", stca.KeyUsages)
+	}
+
+	if stca.Deleted {
+		t.Error("Deleted = true, want false")
+	}
+
+	enrollment := stca.Context.STCAEnrollment
+	if enrollment == nil {
+		t.Fatal("STCAEnrollment context is nil")
+	}
+
+	if enrollment.EnrollmentScenario != "STANDARD" {
+		t.Errorf("EnrollmentScenario = %q, want STANDARD", enrollment.EnrollmentScenario)
+	}
+
+	if want := []int{2048, 4096}; !slices.Equal(enrollment.KeySizes, want) {
+		t.Errorf("KeySizes = %v, want %v", enrollment.KeySizes, want)
+	}
+
+	if !enrollment.IncludeSID {
+		t.Error("IncludeSID = false, want true")
+	}
+
+	if enrollment.SupportedToken != "RUTOKEN" {
+		t.Errorf("SupportedToken = %q, want RUTOKEN", enrollment.SupportedToken)
+	}
+
+	common := stca.Context.Common
+	if common == nil {
+		t.Fatal("Common context is nil")
+	}
+
+	if !common.CheckUniquePublicKeys || !common.ApplyKeyUsages || !common.ApplyExtendedKeyUsages {
+		t.Errorf("common context = %+v, want every flag true", *common)
+	}
+
+	scep := templates[1]
+	if scep.ProtocolType != TemplateProtocolSCEP {
+		t.Errorf("ProtocolType = %q, want %q", scep.ProtocolType, TemplateProtocolSCEP)
+	}
+
+	if scep.Context.STCAEnrollment != nil || scep.Context.Common != nil {
+		t.Errorf("SCEP template context = %+v, want empty", scep.Context)
+	}
+
+	requests := f.requestsTo(apiPath(pathTemplates))
+	if len(requests) != 1 {
+		t.Fatalf("template requests = %d, want 1", len(requests))
+	}
+
+	if got := requests[0].method; got != http.MethodGet {
+		t.Errorf("method = %q, want GET", got)
+	}
+
+	if got, want := requests[0].header.Get("Authorization"), "Bearer "+testAccessToken; got != want {
+		t.Errorf("Authorization = %q, want %q", got, want)
+	}
+}
+
+func TestListTemplatesEmpty(t *testing.T) {
+	t.Parallel()
+
+	f := newFakeCA(t)
+	f.setTemplates(nil)
+
+	templates, err := f.newClient(t).ListTemplates(t.Context())
+	if err != nil {
+		t.Fatalf("ListTemplates: %v", err)
+	}
+
+	if templates == nil {
+		t.Error("templates = nil, want an empty slice")
+	}
+
+	if len(templates) != 0 {
+		t.Errorf("templates = %d, want 0", len(templates))
+	}
+}
+
+func TestListTemplatesErrors(t *testing.T) {
+	t.Parallel()
+
+	t.Run("api error", func(t *testing.T) {
+		t.Parallel()
+
+		f := newFakeCA(t)
+		f.setHandler(apiPath(pathTemplates), func(w http.ResponseWriter, _ *http.Request) {
+			writeJSON(w, http.StatusOK, map[string]any{
+				"errorCode":    23,
+				"errorMessage": "access denied",
+			})
+		})
+
+		_, err := f.newClient(t).ListTemplates(t.Context())
+		if err == nil {
+			t.Fatal("expected an error")
+		}
+
+		apiErr, ok := errors.AsType[*APIError](err)
+		if !ok {
+			t.Fatalf("error = %v, want an *APIError", err)
+		}
+
+		if apiErr.Code != 23 {
+			t.Errorf("Code = %d, want 23", apiErr.Code)
+		}
+	})
+
+	t.Run("http error", func(t *testing.T) {
+		t.Parallel()
+
+		f := newFakeCA(t)
+		f.setHandler(apiPath(pathTemplates), func(w http.ResponseWriter, _ *http.Request) {
+			http.Error(w, "boom", http.StatusInternalServerError)
+		})
+
+		_, err := f.newClient(t).ListTemplates(t.Context())
+		if err == nil {
+			t.Fatal("expected an error")
+		}
+
+		httpErr, ok := errors.AsType[*HTTPError](err)
+		if !ok {
+			t.Fatalf("error = %v, want an *HTTPError", err)
+		}
+
+		if httpErr.StatusCode != http.StatusInternalServerError {
+			t.Errorf("StatusCode = %d, want 500", httpErr.StatusCode)
+		}
+	})
+}

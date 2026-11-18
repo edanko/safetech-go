@@ -108,6 +108,7 @@ const (
 	pathIssue        = "/certs/issue"
 	pathSearch       = "/certs/search"
 	pathChangeStatus = "/certs/%s/change_status"
+	pathTemplates    = "/templates"
 
 	defaultNode     = "ST CA Root"
 	defaultClientID = "ca-ui"
@@ -299,6 +300,26 @@ func (c *Client) CreateCertificate(
 	}
 
 	return cert, nil
+}
+
+// ListTemplates returns the certificate templates configured in the CA.
+//
+// Use the Name of a template returned here as the templateName argument of
+// [Client.CreateCertificate]. Deleted templates are included so that callers can
+// see templates referenced by existing certificates; filter on
+// [CertificateTemplate.Deleted] to hide them.
+func (c *Client) ListTemplates(ctx context.Context) ([]CertificateTemplate, error) {
+	var payload []templatePayload
+	if err := c.get(ctx, pathTemplates, &payload); err != nil {
+		return nil, fmt.Errorf("safetech: list templates: %w", err)
+	}
+
+	templates := make([]CertificateTemplate, 0, len(payload))
+	for _, entry := range payload {
+		templates = append(templates, entry.template())
+	}
+
+	return templates, nil
 }
 
 // RevokeCertificate revokes the certificate created for the given request id.

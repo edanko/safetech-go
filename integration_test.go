@@ -13,31 +13,25 @@ import (
 	"github.com/edanko/safetech/internal/testutil"
 )
 
-// TestIntegrationIssueAndRevoke performs a full round trip against a live CA:
-// it issues a certificate from a generated CSR and revokes it again.
-//
-// The test is skipped unless credentials are provided:
+// integrationClient returns a client configured from the environment, or skips
+// the test when credentials are missing.
 //
 //	STCA_BASE_URL=https://ca.example.com:7443 \
 //	STCA_REALM_URL=https://keycloak.example.com/realms/ca \
-//	STCA_USERNAME=... STCA_PASSWORD=... STCA_TEMPLATE=... \
+//	STCA_USERNAME=... STCA_PASSWORD=... \
 //	go test -tags=integration -run TestIntegration -v ./...
 //
 // STCA_REALM_URL is optional: when it is empty the Keycloak endpoint is
-// discovered through /api/ui-config. STCA_TEMPLATE is optional and defaults to
-// MY_TEMPLATE.
-func TestIntegrationIssueAndRevoke(t *testing.T) {
+// discovered through /api/ui-config.
+func integrationClient(t *testing.T) *safetech.Client {
+	t.Helper()
+
 	baseURL := os.Getenv("STCA_BASE_URL")
 	username := os.Getenv("STCA_USERNAME")
 	password := os.Getenv("STCA_PASSWORD")
 
 	if baseURL == "" || username == "" || password == "" {
 		t.Skip("integration credentials not provided; set STCA_BASE_URL, STCA_USERNAME and STCA_PASSWORD")
-	}
-
-	template := os.Getenv("STCA_TEMPLATE")
-	if template == "" {
-		template = "MY_TEMPLATE"
 	}
 
 	client, err := safetech.New(safetech.Config{
@@ -51,11 +45,112 @@ func TestIntegrationIssueAndRevoke(t *testing.T) {
 		t.Fatalf("New: %v", err)
 	}
 
+	return client
+}
+
+// TestIntegrationListTemplates lists the CA templates and verifies that the
+// template named by STCA_TEMPLATE, when set, is present.
+func TestIntegrationListTemplates(t *testing.T) {
+	client := integrationClient(t)
+
+	templates, err := client.ListTemplates(t.Context())
+	if err != nil {
+		t.Fatalf("ListTemplates: %v", err)
+	}
+
+	if len(templates) == 0 {
+		t.Fatal("no templates returned")
+	}
+
+	byProtocol := map[safetech.TemplateProtocol]int{}
+
+	for _, template := range templates {
+		byProtocol[template.ProtocolType]++
+
+		if template.Name == "" || template.ID == "" {
+			t.Errorf("template %+v has an empty name or id", template)
+		}
+	}
+
+	t.Logf("templates: %d (%v)", len(templates), byProtocol)
+
+	want := os.Getenv("STCA_TEMPLATE")
+	if want == "" {
+		return
+	}
+
+	for _, template := range templates {
+		if template.Name == want {
+			t.Logf("template %q: protocol=%s scenario=%v keySizes=%v",
+				template.Name, template.ProtocolType,
+				scenario(template), keySizes(template))
+
+			return
+		}
+	}
+
+	t.Errorf("template %q not found in the CA template list", want)
+}
+
+// scenario returns the ST_CA enrollment scenario of a template, if any.
+func scenario(template safetech.CertificateTemplate) string {
+	if template.Context.STCAEnrollment == nil {
+		return ""
+	}
+
+	return template.Context.STCAEnrollment.EnrollmentScenario
+}
+
+// keySizes returns the accepted key sizes of a template, if reported.
+func keySizes(template safetech.CertificateTemplate) []int {
+	if template.Context.STCAEnrollment == nil {
+		return nil
+	}
+
+	return template.Context.STCAEnrollment.KeySizes
+}
+
+// usableTemplate returns the template to issue with: STCA_TEMPLATE when set,
+// otherwise the first ST_CA template whose enrollment scenario is STANDARD
+// (the only scenario the CA accepts for API issuance).
+func usableTemplate(t *testing.T, client *safetech.Client) string {
+	t.Helper()
+
+	if name := os.Getenv("STCA_TEMPLATE"); name != "" {
+		return name
+	}
+
+	templates, err := client.ListTemplates(t.Context())
+	if err != nil {
+		t.Fatalf("ListTemplates: %v", err)
+	}
+
+	for _, template := range templates {
+		if template.Deleted || template.ProtocolType != safetech.TemplateProtocolSTCA {
+			continue
+		}
+
+		if scenario(template) == "STANDARD" {
+			return template.Name
+		}
+	}
+
+	t.Skip("no ST_CA template with a STANDARD enrollment scenario found; set STCA_TEMPLATE")
+
+	return ""
+}
+
+// TestIntegrationIssueAndRevoke performs a full round trip against a live CA:
+// it issues a certificate from a generated CSR and revokes it again.
+func TestIntegrationIssueAndRevoke(t *testing.T) {
+	client := integrationClient(t)
+	template := usableTemplate(t, client)
+
 	csr := testutil.CSR(t, "integration-test.example.com")
 
 	cert, err := client.CreateCertificate(t.Context(), csr, template)
 	if err != nil {
-		t.Fatalf("CreateCertificate: %v", err)
+		t.Fatalf("CreateCertificate with template %q: %v", template, err)
 	}
 
 	if cert.ID == uuid.Nil() {
@@ -74,8 +169,9 @@ func TestIntegrationIssueAndRevoke(t *testing.T) {
 		t.Error("expected PEM-encoded certificate in the response")
 	}
 
-	t.Logf("issued: serial=%s id=%s valid %v..%v",
-		cert.SerialNumber, cert.ID, cert.NotBefore.Format(time.RFC3339), cert.NotAfter.Format(time.RFC3339))
+	t.Logf("issued with %q: serial=%s id=%s valid %s..%s", template,
+		cert.SerialNumber, cert.ID,
+		cert.NotBefore.Format(time.RFC3339), cert.NotAfter.Format(time.RFC3339))
 
 	if _, err := cert.ParsePEM(); err != nil {
 		t.Errorf("ParsePEM: %v", err)

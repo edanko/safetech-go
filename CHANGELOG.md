@@ -25,6 +25,8 @@ First public release.
   validity window, with `ParsePEM` returning an `*x509.Certificate`.
 - Context-first API: `CreateCertificate` and `RevokeCertificate` take a
   `context.Context` as their first argument.
+- `ListTemplates`, returning the certificate templates configured in the CA with
+  their protocol, validity, key-usage and ST_CA enrollment settings.
 - Local CSR validation before a request is sent: PEM decode, parse, and
   self-signature check.
 - RFC 5280 revocation reasons (`RevokeReason`) selected through

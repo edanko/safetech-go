@@ -187,6 +187,11 @@ func (c *Client) post(ctx context.Context, path string, reqBody, out any) error 
 	return c.do(ctx, http.MethodPost, path, reqBody, out)
 }
 
+// get performs a GET request against the CA API.
+func (c *Client) get(ctx context.Context, path string, out any) error {
+	return c.do(ctx, http.MethodGet, path, nil, out)
+}
+
 // patch performs a PATCH request against the CA API.
 func (c *Client) patch(ctx context.Context, path string, reqBody, out any) error {
 	return c.do(ctx, http.MethodPatch, path, reqBody, out)
@@ -281,4 +286,87 @@ type searchSort struct {
 type searchPayload struct {
 	Content    []certPayload `json:"content"`
 	TotalItems int           `json:"totalItems"`
+}
+
+// templatePayload is one entry of the GET /templates response.
+type templatePayload struct {
+	ID                string                  `json:"id"`
+	Name              string                  `json:"name"`
+	Description       string                  `json:"description"`
+	OID               string                  `json:"oid"`
+	ProtocolType      string                  `json:"protocolType"`
+	MaxValidityPeriod int                     `json:"maxValidityPeriod"`
+	MinKeySize        int                     `json:"minKeySize"`
+	KeyUsages         int                     `json:"keyUsages"`
+	Deleted           bool                    `json:"deleted"`
+	Context           *templateContextPayload `json:"context"`
+}
+
+// templateContextPayload is the enrollment context of a template. Either part
+// may be absent depending on the template protocol, and context itself may be
+// null for templates created without one.
+type templateContextPayload struct {
+	STCAEnrollment *stcaEnrollmentPayload `json:"stcaEnrollmentContext"`
+	Common         *commonContextPayload  `json:"commonContext"`
+}
+
+// stcaEnrollmentPayload is the ST_CA-specific enrolment configuration.
+type stcaEnrollmentPayload struct {
+	EnrollmentScenario              string   `json:"enrollmentScenario"`
+	CryptoTypes                     []string `json:"cryptoTypes"`
+	KeySizes                        []int    `json:"keySizes"`
+	SignatureAlgorithms             []string `json:"signatureAlgorithms"`
+	RequiredSubjectAlternativeNames []string `json:"requiredSubjectAlternativeNames"`
+	IncludeSID                      bool     `json:"includeSID"`
+	SupportedToken                  string   `json:"supportedToken"`
+	InstallRutokenConfig            bool     `json:"installRutokenConfig"`
+}
+
+// commonContextPayload is the protocol-independent enrolment configuration.
+type commonContextPayload struct {
+	CheckUniquePublicKeys  bool `json:"checkUniquePublicKeys"`
+	ApplyKeyUsages         bool `json:"applyKeyUsages"`
+	ApplyExtendedKeyUsages bool `json:"applyExtendedKeyUsages"`
+}
+
+// template converts a template payload into the domain type.
+func (p templatePayload) template() CertificateTemplate {
+	template := CertificateTemplate{
+		ID:                p.ID,
+		Name:              p.Name,
+		Description:       p.Description,
+		OID:               p.OID,
+		ProtocolType:      TemplateProtocol(p.ProtocolType),
+		MaxValidityPeriod: p.MaxValidityPeriod,
+		MinKeySize:        p.MinKeySize,
+		KeyUsages:         p.KeyUsages,
+		Deleted:           p.Deleted,
+	}
+
+	if p.Context == nil {
+		return template
+	}
+
+	if stca := p.Context.STCAEnrollment; stca != nil {
+		template.Context.STCAEnrollment = &STCAEnrollmentContext{
+			EnrollmentScenario:              stca.EnrollmentScenario,
+			CryptoTypes:                     stca.CryptoTypes,
+			KeySizes:                        stca.KeySizes,
+			SignatureAlgorithms:             stca.SignatureAlgorithms,
+			RequiredSubjectAlternativeNames: stca.RequiredSubjectAlternativeNames,
+			IncludeSID:                      stca.IncludeSID,
+			SupportedToken:                  stca.SupportedToken,
+			InstallRutokenConfig:            stca.InstallRutokenConfig,
+		}
+	}
+
+	if common := p.Context.Common; common != nil {
+		template.Context.Common = &CommonContext{
+			CheckUniquePublicKeys:  common.CheckUniquePublicKeys,
+			ApplyKeyUsages:         common.ApplyKeyUsages,
+			ApplyExtendedKeyUsages: common.ApplyExtendedKeyUsages,
+		}
+	}
+
+	return template
 }

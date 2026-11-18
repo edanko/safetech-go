@@ -17,6 +17,8 @@ Vendor documentation (Russian):
 - Issues certificates from PEM-encoded PKCS#10 CSRs against a named CA template.
 - Validates the CSR locally (PEM decode, parse, self-signature check) before any
   request is sent; invalid requests return `ErrInvalidCSR`.
+- Lists the CA certificate templates, including the ST_CA enrollment settings that
+  constrain a request.
 - Revokes certificates by the ID returned at issuance, with RFC 5280 revocation reasons.
 - Authenticates against Keycloak with cached, automatically refreshed access tokens.
 - Takes a `context.Context` on every operation, so cancellation and deadlines propagate.
@@ -171,6 +173,44 @@ Revocation reasons (`RevokeReason`, RFC 5280):
 RFC 5280 reasons 6 (`certificateHold`) and 8 (`removeFromCRL`) are not exposed
 by this client.
 
+## Templates
+
+`ListTemplates` returns the certificate templates configured in the CA, so
+template names do not have to be hard-coded:
+
+```go
+templates, err := client.ListTemplates(ctx)
+if err != nil {
+	return err
+}
+
+for _, tmpl := range templates {
+	if tmpl.ProtocolType != safetech.TemplateProtocolSTCA || tmpl.Deleted {
+		continue
+	}
+
+	fmt.Println(tmpl.Name, tmpl.MaxValidityPeriod, tmpl.MinKeySize, tmpl.KeyUsages)
+}
+```
+
+Each `CertificateTemplate` carries `ID`, `Name`, `Description`, `OID`,
+`ProtocolType`, `MaxValidityPeriod` (days), `MinKeySize` (bits), `KeyUsages`
+(bitmask) and `Context`. `Context.STCAEnrollment` exposes what constrains an
+ST_CA request: `EnrollmentScenario`, `CryptoTypes`, `KeySizes`,
+`SignatureAlgorithms`, `RequiredSubjectAlternativeNames`, `IncludeSID` and
+`SupportedToken`.
+
+Two rules the CA enforces, which the list lets you check before issuing:
+
+- The template must be of protocol `ST_CA`; templates of other protocols are
+  rejected for API issuance.
+- `EnrollmentScenario` must be `STANDARD`. Templates configured as `API_ONLY` or
+  `TOKEN_BASED` are rejected with an `*APIError` whose message is
+  `for protocol type 'ST_CA' enrollmentScenario must be 'STANDARD'`.
+
+Deleted templates are returned by the API and therefore by `ListTemplates`;
+filter on `Deleted` when you only want usable ones.
+
 ## Security notes
 
 - `TLSSkipVerify` disables TLS certificate verification. Use it only against
@@ -204,7 +244,7 @@ export STCA_BASE_URL="https://ca.example.com:7443"
 export STCA_REALM_URL="https://keycloak.example.com/realms/ca" # optional; empty means discover
 export STCA_USERNAME="..."
 export STCA_PASSWORD="..."
-export STCA_TEMPLATE="MY_TEMPLATE" # optional; defaults to MY_TEMPLATE
+export STCA_TEMPLATE="MY_TEMPLATE" # optional; auto-selected from ListTemplates
 
 go test -tags=integration ./...
 # or
@@ -212,7 +252,10 @@ make test-integration
 ```
 
 If `STCA_BASE_URL`, `STCA_USERNAME` or `STCA_PASSWORD` is empty, the test skips
-instead of failing.
+instead of failing. `TestIntegrationListTemplates` reads the template list, and
+`TestIntegrationIssueAndRevoke` issues and revokes one certificate; when
+`STCA_TEMPLATE` is empty it picks the first `ST_CA` template whose enrollment
+scenario is `STANDARD`.
 
 CI runs unit tests, linters and security scanners; the pipeline layout is
 described in [docs/CI.md](docs/CI.md).

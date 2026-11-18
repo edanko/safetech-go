@@ -50,6 +50,7 @@ type fakeCA struct {
 	searchTotal   int
 	revokedStatus string
 	issuePEM      string
+	templates     []templatePayload
 }
 
 // newFakeCA starts a fake CA over plain HTTP.
@@ -71,6 +72,7 @@ func newFakeCAWithTLS(t *testing.T, useTLS bool) *fakeCA {
 		searchTotal:   1,
 		revokedStatus: statusRevoked,
 		issuePEM:      string(testutil.Certificate(t, "issued.example.com")),
+		templates:     templateFixtures(),
 	}
 
 	mux := http.NewServeMux()
@@ -79,6 +81,7 @@ func newFakeCAWithTLS(t *testing.T, useTLS bool) *fakeCA {
 	mux.HandleFunc(apiPath(pathIssue), f.serveIssue)
 	mux.HandleFunc(apiPath(pathSearch), f.serveSearch)
 	mux.HandleFunc(apiPath("/certs/"), f.serveChangeStatus)
+	mux.HandleFunc(apiPath(pathTemplates), f.serveTemplates)
 
 	if useTLS {
 		f.server = httptest.NewTLSServer(f.record(mux))
@@ -214,6 +217,57 @@ func apiPath(endpoint string) string {
 	return "/" + apiPrefix + endpoint
 }
 
+// setTemplates changes the template list response.
+func (f *fakeCA) setTemplates(templates []templatePayload) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	f.templates = templates
+}
+
+// templateFixtures returns one ST_CA template with a full enrollment context and
+// one SCEP template without any context.
+func templateFixtures() []templatePayload {
+	return []templatePayload{
+		{
+			ID:                "11111111-1111-4111-8111-111111111111",
+			Name:              testTemplate,
+			Description:       "template used by the tests",
+			OID:               "1.3.6.1.4.1.311.21.8.1",
+			ProtocolType:      string(TemplateProtocolSTCA),
+			MaxValidityPeriod: 365,
+			MinKeySize:        2048,
+			KeyUsages:         160,
+			Context: &templateContextPayload{
+				STCAEnrollment: &stcaEnrollmentPayload{
+					EnrollmentScenario:              "STANDARD",
+					CryptoTypes:                     []string{"RSA"},
+					KeySizes:                        []int{2048, 4096},
+					SignatureAlgorithms:             []string{"SHA256WITHRSA"},
+					RequiredSubjectAlternativeNames: []string{"UPN"},
+					IncludeSID:                      true,
+					SupportedToken:                  "RUTOKEN",
+					InstallRutokenConfig:            true,
+				},
+				Common: &commonContextPayload{
+					CheckUniquePublicKeys:  true,
+					ApplyKeyUsages:         true,
+					ApplyExtendedKeyUsages: true,
+				},
+			},
+		},
+		{
+			ID:                "22222222-2222-4222-8222-222222222222",
+			Name:              "scep-fixture",
+			Description:       "SCEP template without context",
+			ProtocolType:      string(TemplateProtocolSCEP),
+			MaxValidityPeriod: 30,
+			MinKeySize:        1024,
+			KeyUsages:         1,
+		},
+	}
+}
+
 // writeJSON writes body as a JSON response.
 func writeJSON(w http.ResponseWriter, status int, body any) {
 	w.Header().Set("Content-Type", "application/json")
@@ -319,6 +373,23 @@ func (f *fakeCA) serveSearch(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{
 		"errorCode": 0,
 		"payload":   searchPayload{Content: content, TotalItems: total},
+	})
+}
+
+func (f *fakeCA) serveTemplates(w http.ResponseWriter, r *http.Request) {
+	if handler := f.handler(apiPath(pathTemplates)); handler != nil {
+		handler(w, r)
+
+		return
+	}
+
+	f.mu.Lock()
+	templates := f.templates
+	f.mu.Unlock()
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"errorCode": 0,
+		"payload":   templates,
 	})
 }
 

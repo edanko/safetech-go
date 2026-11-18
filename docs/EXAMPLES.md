@@ -27,6 +27,39 @@ if err != nil {
 log.Printf("serial=%s valid %s..%s", cert.SerialNumber, cert.NotBefore, cert.NotAfter)
 ```
 
+## Discover templates and issue with one
+
+```go
+templates, err := client.ListTemplates(ctx)
+if err != nil {
+	return err
+}
+
+var templateName string
+
+for _, tmpl := range templates {
+	stca := tmpl.Context.STCAEnrollment
+	if tmpl.Deleted || tmpl.ProtocolType != safetech.TemplateProtocolSTCA || stca == nil {
+		continue
+	}
+
+	if stca.EnrollmentScenario == "STANDARD" {
+		templateName = tmpl.Name
+
+		break
+	}
+}
+
+if templateName == "" {
+	return errors.New("no usable ST_CA template")
+}
+
+cert, err := client.CreateCertificate(ctx, csrPEM, templateName)
+if err != nil {
+	return err
+}
+```
+
 ## Revoke a certificate with an explicit reason
 
 ```go
