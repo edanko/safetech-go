@@ -164,7 +164,7 @@ to be closed. More recipes are in [docs/EXAMPLES.md](docs/EXAMPLES.md).
 | `RootCAs` | system store | Trust store used to verify the CA and Keycloak TLS certificates. See [TLS trust](#tls-trust). |
 | `TLSSkipVerify` | `false` | Disables server certificate verification. Test environments only; see [Security notes](#security-notes). |
 | `HTTPClient` | `nil` (internal default) | Optional custom `*http.Client`. When `RootCAs` or `TLSSkipVerify` is set, the custom transport must be an `*http.Transport`. |
-| `UserAgent` | `safetech/<Version>` | `User-Agent` header sent to the API. |
+| `UserAgent` | `safetech/<version>` | `User-Agent` header sent to the API. The version is detected from the build, see [Versioning](#versioning). |
 | `Retry` | 3 attempts, 200ms backoff, 5s cap | Retry policy for idempotent requests. See [Retries](#retries). |
 | `APIBaseURL` | empty | Full base URL of the `ca-core` API, for example `http://ca-core.example.com:8081/api/v1`. Set it to bypass the gateway; `BaseURL` is then ignored and `AuthURL` becomes required. |
 
@@ -487,7 +487,22 @@ The module follows [Semantic Versioning](https://semver.org/) and is pre-1.0
 changes; pin a specific version and read the [CHANGELOG](CHANGELOG.md) before
 upgrading.
 
-`Version` defaults to `dev` and can be set when building your binary:
+The version reported in the `User-Agent` header is read from your build's module
+information, so it is the version you actually built against and **you do not
+need to change your build**:
+
+```
+User-Agent: safetech/v0.4.1
+```
+
+It resolves in this order, first match wins:
+
+1. `safetech.Version`, if you set it in code or at link time;
+2. the version of this module recorded in the build (`go.mod`, including a
+   `replace` directive);
+3. `dev`, for a test binary or a `replace` pointing at a local directory.
+
+Override only when you need to:
 
 ```sh
 go build -ldflags "-X github.com/edanko/safetech-go.Version=v1.2.3" ./cmd/yourapp
