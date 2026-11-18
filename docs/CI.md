@@ -33,7 +33,12 @@ Branch protection on `main` should require exactly these check names:
 - `Lint`
 
 The security jobs are informational: `gosec` runs with `-no-fail` and CodeQL only
-reports into the Security tab, so neither can gate a merge. Their SARIF uploads
+reports into the Security tab, so neither can gate a merge. That depends on there
+being a Security tab: code scanning is free on public repositories but needs
+GitHub Advanced Security on private ones, so on a private repository CodeQL is
+skipped and a `gosec` finding fails the job instead of uploading, which keeps it
+visible. Set the repository variable `ENABLE_CODE_SCANNING` to `true` on a
+private repository that does have the feature. Their SARIF uploads
 need `security-events: write`, which a fork PR's token never has, so the CodeQL
 job and the gosec upload are skipped for pull requests from forks.
 

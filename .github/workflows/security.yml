@@ -11,6 +11,10 @@ on:
 permissions:
   contents: read
 
+# Code scanning is free on public repositories but needs GitHub Advanced
+# Security on private ones. The scanners run either way; only the SARIF upload
+# and the CodeQL analysis depend on the feature. Set the repository variable
+# ENABLE_CODE_SCANNING to true to run them on a private repository that has it.
 jobs:
   govulncheck:
     name: govulncheck
@@ -38,7 +42,9 @@ jobs:
         uses: actions/checkout@v7
 
       # -no-fail keeps the job green so the SARIF always uploads; findings are
-      # triaged in the Security tab instead of blocking merges.
+      # triaged in the Security tab instead of blocking merges. When there is no
+      # Security tab to upload to, the step below fails instead, so findings are
+      # never silently invisible.
       - name: Run gosec
         uses: securego/gosec@v2.30.0
         with:
@@ -47,20 +53,52 @@ jobs:
       # Fork PRs get a read-only GITHUB_TOKEN, so the upload is skipped there.
       - name: Upload gosec SARIF
         if: >-
-          always() && (github.event_name != 'pull_request' ||
+          (github.event.repository.private == false ||
+          vars.ENABLE_CODE_SCANNING == 'true') &&
+          (github.event_name != 'pull_request' ||
           github.event.pull_request.head.repo.full_name == github.repository)
         uses: github/codeql-action/upload-sarif@v4
         with:
           sarif_file: gosec.sarif
 
+      - name: Fail on findings that could not be uploaded
+        if: >-
+          github.event.repository.private &&
+          vars.ENABLE_CODE_SCANNING != 'true'
+        run: |
+          python3 - <<'PY'
+          import json
+          import sys
+
+          with open("gosec.sarif", encoding="utf-8") as handle:
+              runs = json.load(handle).get("runs", [])
+
+          findings = [r for run in runs for r in run.get("results", [])]
+          for finding in findings:
+              rule = finding.get("ruleId", "unknown")
+              message = finding.get("message", {}).get("text", "")
+              location = ""
+              for place in finding.get("locations", []):
+                  physical = place.get("physicalLocation", {})
+                  uri = physical.get("artifactLocation", {}).get("uri", "")
+                  line = physical.get("region", {}).get("startLine", 0)
+                  location = f"{uri}:{line}"
+              print(f"{location}: {rule}: {message}")
+
+          if findings:
+              sys.exit(f"gosec reported {len(findings)} finding(s) that cannot be uploaded")
+          PY
+
   codeql:
     name: CodeQL
     runs-on: ubuntu-latest
-    # Same GITHUB_TOKEN limit as above: code scanning uploads need a token with
-    # security-events: write, which pull requests from forks do not have.
+    # CodeQL needs code scanning, plus a token with security-events: write,
+    # which pull requests from forks do not have.
     if: >-
-      github.event_name != 'pull_request' ||
-      github.event.pull_request.head.repo.full_name == github.repository
+      (github.event.repository.private == false ||
+      vars.ENABLE_CODE_SCANNING == 'true') &&
+      (github.event_name != 'pull_request' ||
+      github.event.pull_request.head.repo.full_name == github.repository)
     permissions:
       contents: read
       security-events: write

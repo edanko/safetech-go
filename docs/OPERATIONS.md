@@ -44,7 +44,10 @@ runbook around it.
    pushes.
 
 4. **Settings → Code security**: enable **Dependabot alerts**, **secret
-   scanning** and **secret scanning push protection**. No secret has ever been
+   scanning** and **secret scanning push protection**. Code scanning is free on
+   public repositories; on a private one it needs GitHub Advanced Security, and
+   the `Security` workflow skips CodeQL until you either make the repository
+   public or set the `ENABLE_CODE_SCANNING` repository variable to `true`. No secret has ever been
    committed (the repository started empty), but push protection is what keeps
    the `STCA_PASSWORD` class of accident from happening later.
 
