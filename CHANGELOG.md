@@ -67,6 +67,11 @@ First public release.
   its configuration from `STCA_BASE_URL`, `STCA_REALM_URL`, `STCA_USERNAME` and
   `STCA_PASSWORD`.
 
+### Changed (tooling)
+
+- CI enforces a 90% statement-coverage floor on the library package; it is
+  currently 96.7%.
+
 ### Fixed
 
 - A `Retry-After` value large enough to overflow `time.Duration` produced a

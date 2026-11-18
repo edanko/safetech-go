@@ -41,6 +41,19 @@ jobs:
       - name: Test (race detector, shuffled order, coverage)
         run: go test -race -shuffle=on -covermode=atomic -coverprofile=coverage.out ./...
 
+      # The library package must stay well covered; the floor is deliberately
+      # below the current level so a genuine refactor is not blocked by noise.
+      - name: Check coverage floor
+        if: matrix.go-version == '1.27'
+        env:
+          COVERAGE_FLOOR: "90"
+        run: |
+          go test -coverprofile=coverage-pkg.out .
+          total=$(go tool cover -func=coverage-pkg.out | awk '/^total:/ { sub("%", "", $3); print $3 }')
+          echo "package coverage: ${total}% (floor: ${COVERAGE_FLOOR}%)"
+          awk -v total="${total}" -v floor="${COVERAGE_FLOOR}" \
+            'BEGIN { if (total + 0 < floor + 0) { printf "::error::coverage %s%% is below the %s%% floor\n", total, floor; exit 1 } }'
+
       - name: Upload coverage
         if: always()
         uses: actions/upload-artifact@v7

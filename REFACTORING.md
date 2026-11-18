@@ -35,31 +35,31 @@ test installation:
 | Idempotent revocation | `RevokeCertificateWithOptions` with `AllowAlreadyRevoked` returns success for an already revoked certificate. |
 | Parser fuzzing | `FuzzNormalizeCSR`, `FuzzDecodeEnvelope`, `FuzzParseSTCATime`, `FuzzParseRetryAfter`, `FuzzTemplatePayloadDecoding`. |
 | Example tests | `Example` functions compile in `go test`, so the README snippets cannot rot. |
+| Coverage | Untested branches closed (discovery/token decode failures, error formatting, URL validation, TLS transport cloning, search pagination bound, waiter cancellation): package coverage 93.7% → 96.7%, with a 90% floor in CI. |
 
-## Still worth refactoring
+## Decisions recorded
 
-### Robustness
+The remaining items from the original list are settled rather than pending:
 
-1. **Certificate payload fallbacks.** Issuance requires `certificateInfo.pem`.
-   Some deployments may return the certificate only in
-   `certificateRequest.certificate`. Support both, with the PEM/DER question
-   settled by a fixture test rather than by guessing.
+1. **Go 1.27 floor stays.** The standard-library `uuid` package is the reason the
+   module has no third-party dependency, and the toolchain is what CI tests
+   against. Dropping the floor would trade a dependency for compatibility with
+   toolchains this project does not support. Revisit only if a consumer needs an
+   older Go.
 
-### Structure and tooling
+2. **The package stays flat.** One vendored API and ~1.5k lines: an `internal/`
+   split or a DTO subpackage would add indirection without a second consumer.
 
-2. **Keep the package flat.** One vendored API, ~1.2k lines: an `internal/` split
-   or a DTO subpackage would add indirection without a second consumer. Revisit
-   if a second SafeTech API surface is added.
+3. **No certificate-payload fallback.** The original idea was to read the
+   certificate from `certificateRequest.certificate` when `certificateInfo.pem`
+   is empty. Live inspection shows that field holds the certificate **serial**
+   (`"03e2"`), not a certificate, so the fallback would be wrong. `certificateInfo`
+   is the only source of the PEM, and issuance fails with a precise error when it
+   is missing.
 
-3. **Reconsider the Go floor.** Using the standard-library `uuid` from Go 1.27
-   removes the last dependency but requires Go 1.27+ from every consumer.
-   `github.com/google/uuid` would lower the floor to Go 1.21 at the cost of one
-   dependency. Decide before tagging `v1.0.0`; `v0.x` is the right time to
-   change it.
-
-4. **Coverage signal.** A few error branches are still unexercised
-   (`discoverAuth` decode failure, `requestToken` malformed JSON). Cover them, or
-   add a threshold gate to CI, but not both as a substitute for the other.
+4. **Coverage is gated, not just reported.** The library package is at 96.7% of
+   statements; CI fails below 90%. The remaining uncovered branches are
+   defensive read/marshal failures that cannot be triggered from a test.
 
 ## API behaviour verified against a live instance
 
@@ -75,3 +75,5 @@ the test suite now mirrors:
 | The serial number is lowercase hex without a prefix. | `serialNumber` `03dc`; `PATCH /certs/03dc/change_status` revoked it successfully. |
 | `ST_CA` issuance requires a template whose `enrollmentScenario` is `STANDARD`. | `API_ONLY`/`TOKEN_BASED` templates are rejected with `errorCode` 101 and "for protocol type 'ST_CA' enrollmentScenario must be 'STANDARD'". |
 | An already revoked certificate is reported, not silently accepted. | Second `RevokeCertificate` returns `ErrCertificateRevoked`. |
+| `certificateRequest.certificate` carries the serial number, not a certificate. | Returned `"03e2"` for a successful issuance while `certificateInfo.pem` held the PEM. |
+| `certificateInfo` also carries `fullchain`, `root`, `pkcs7` and `dnHash`. | Observed in the issue response; the client surfaces `pem` only, see the decision above. |

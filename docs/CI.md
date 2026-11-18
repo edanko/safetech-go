@@ -7,7 +7,7 @@ All automation lives in `.github/workflows/`. Everything runs on GitHub-hosted
 
 | Workflow | Triggers | What it proves |
 | --- | --- | --- |
-| `test.yml` (CI) | push / PR to `main`, manual | `go.mod`+`go.sum` are tidy, code vets and builds, tests pass under the race detector in shuffled order; coverage artifact per Go version |
+| `test.yml` (CI) | push / PR to `main`, manual | `go.mod`+`go.sum` are tidy, code vets and builds, tests pass under the race detector in shuffled order; library-package coverage must stay at or above 90%; coverage artifact per Go version |
 | `lint.yml` (Lint) | push / PR to `main`, manual | `golangci-lint` v2.15.0, using the repo `.golangci.yml`, reports no findings |
 | `security.yml` (Security) | push / PR to `main`, manual | no known vulnerability is reachable (govulncheck); gosec and CodeQL `security-extended` results appear in the Security tab |
 | `release.yml` (Release) | tag `v*` | GoReleaser publishes a GitHub Release with a grouped changelog (no binaries) |
@@ -16,7 +16,9 @@ Go version matrix: `1.27` (the module floor) and `stable`, with `fail-fast: fals
 so one toolchain failure cannot hide the other.
 
 Coverage is uploaded as the artifact `coverage-1.27` / `coverage-stable`; there is
-no Codecov upload, so no `CODECOV_TOKEN` secret is needed.
+no Codecov upload, so no `CODECOV_TOKEN` secret is needed. The `1.27` leg also
+re-runs the library package alone and fails if statement coverage drops below the
+90% floor (`COVERAGE_FLOOR` in `test.yml`).
 
 ## Required status checks
 
