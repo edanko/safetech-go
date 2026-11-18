@@ -46,8 +46,10 @@ Go 1.27 and depending only on the standard library.
   waiting callers.
 - Typed errors: sentinels for `errors.Is` and `*HTTPError` / `*APIError` for
   `errors.As`, so callers never match on error strings.
-- `Version`, defaulting to `dev` and set at build time with an `-ldflags`
-  override.
+- The version reported in the `User-Agent` header is detected from the build
+  information of the importing program, so consumers report the version they
+  built against without changing their build. `safetech.Version` overrides it,
+  and `dev` is the fallback for test binaries and local `replace` directives.
 
 ### Security
 

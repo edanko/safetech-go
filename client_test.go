@@ -31,7 +31,7 @@ func TestNewAppliesDefaults(t *testing.T) {
 		t.Errorf("revoke reason = %q, want %q", client.cfg.RevokeReason, RevokeReasonUnspecified)
 	}
 
-	if want := "safetech/" + Version; client.userAgent != want {
+	if want := defaultUserAgent(); client.userAgent != want {
 		t.Errorf("user agent = %q, want %q", client.userAgent, want)
 	}
 
