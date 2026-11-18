@@ -10,7 +10,7 @@ import (
 	"time"
 	"uuid"
 
-	"github.com/edanko/safetech/internal/testutil"
+	"github.com/edanko/safetech-go/internal/testutil"
 )
 
 // fastRetry keeps retry tests quick while still exercising the loop.

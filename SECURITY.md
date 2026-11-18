@@ -17,7 +17,7 @@ Do not open a public issue, pull request or discussion for a security problem.
 
 Report it privately through GitHub Security Advisories:
 
-https://github.com/edanko/safetech/security/advisories/new
+https://github.com/edanko/safetech-go/security/advisories/new
 
 Include:
 

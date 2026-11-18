@@ -30,8 +30,8 @@ release binary or a package manager is recommended.
 ## Setup
 
 ```sh
-git clone https://github.com/edanko/safetech.git
-cd safetech
+git clone https://github.com/edanko/safetech-go.git
+cd safetech-go
 go mod download
 ```
 

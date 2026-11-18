@@ -11,7 +11,7 @@ import (
 	"time"
 	"uuid"
 
-	"github.com/edanko/safetech/internal/testutil"
+	"github.com/edanko/safetech-go/internal/testutil"
 )
 
 func TestDiscoveryDecodeFailure(t *testing.T) {

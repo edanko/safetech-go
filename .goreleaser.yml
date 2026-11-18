@@ -2,7 +2,7 @@
 #
 # This module ships no main package, so there is nothing to compile, archive or
 # upload. A release is only: a GitHub Release whose body is the git changelog.
-# Consumers fetch the code with `go get github.com/edanko/safetech@vX.Y.Z`.
+# Consumers fetch the code with `go get github.com/edanko/safetech-go@vX.Y.Z`.
 version: 2
 
 # GoReleaser v2 fails when there is no build at all, so declare exactly one

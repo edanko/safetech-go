@@ -12,8 +12,8 @@ import (
 	"time"
 	"uuid"
 
-	"github.com/edanko/safetech"
-	"github.com/edanko/safetech/internal/testutil"
+	"github.com/edanko/safetech-go"
+	"github.com/edanko/safetech-go/internal/testutil"
 )
 
 // integrationClient returns a client configured from the environment, or skips

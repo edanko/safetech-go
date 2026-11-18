@@ -5,7 +5,7 @@ package safetech
 //
 // Release builds set it at link time:
 //
-//	go build -ldflags "-X github.com/edanko/safetech.Version=v1.2.3"
+//	go build -ldflags "-X github.com/edanko/safetech-go.Version=v1.2.3"
 var Version = "dev"
 
 // defaultUserAgent returns the User-Agent header value used when

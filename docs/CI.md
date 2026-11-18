@@ -48,12 +48,12 @@ job and the gosec upload are skipped for pull requests from forks.
    (`docs:`, `test:`, `ci:`, `chore:`, `style:`, merges) is filtered out.
 4. `release.draft: false` publishes immediately; `release.prerelease: auto`
    marks tags such as `v0.2.0-rc.1` as pre-releases.
-5. Nothing is compiled: consumers use `go get github.com/edanko/safetech@vX.Y.Z`.
+5. Nothing is compiled: consumers use `go get github.com/edanko/safetech-go@vX.Y.Z`.
    The tag must be SemVer (`vMAJOR.MINOR.PATCH`), otherwise Go modules reject it.
 
 ## Repo settings checklist
 
-After pushing to GitHub (`github.com/edanko/safetech`):
+After pushing to GitHub (`github.com/edanko/safetech-go`):
 
 - [ ] Protect `main`: require a pull request, at least 1 approval, the three
       status checks above, and up-to-date branches; disallow admin bypass.

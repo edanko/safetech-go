@@ -14,7 +14,7 @@ import (
 	"time"
 	"uuid"
 
-	"github.com/edanko/safetech/internal/testutil"
+	"github.com/edanko/safetech-go/internal/testutil"
 )
 
 func TestNewAppliesDefaults(t *testing.T) {

@@ -1,4 +1,4 @@
-# Development tasks for the safetech module.
+# Development tasks for the safetech-go module.
 #
 # Run "make" or "make help" to list the available targets.
 

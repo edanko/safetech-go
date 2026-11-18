@@ -1,4 +1,4 @@
-# safetech
+# safetech-go
 
 Go client for the SafeTech CA certificate authority (`ca-core` REST API):
 issue X.509 certificates from a CSR and revoke them.
@@ -6,11 +6,11 @@ issue X.509 certificates from a CSR and revoke them.
 Vendor documentation (Russian):
 [SafeTech CA API — Swagger and request examples](https://docs.safetechlab.ru/share/e0dabuov2p/p/swagger-i-primery-zaprosov-v-api-safe-tech-ca-zPrNWFhF5l).
 
-[![CI](https://img.shields.io/github/actions/workflow/status/edanko/safetech/test.yml?branch=main)](https://github.com/edanko/safetech/actions/workflows/test.yml)
-[![Go Reference](https://pkg.go.dev/badge/github.com/edanko/safetech.svg)](https://pkg.go.dev/github.com/edanko/safetech)
-[![Go Version](https://img.shields.io/github/go-mod/go-version/edanko/safetech)](https://go.dev/)
-[![License: MIT](https://img.shields.io/github/license/edanko/safetech)](LICENSE)
-[![Go Report Card](https://goreportcard.com/badge/github.com/edanko/safetech)](https://goreportcard.com/report/github.com/edanko/safetech)
+[![CI](https://img.shields.io/github/actions/workflow/status/edanko/safetech-go/test.yml?branch=main)](https://github.com/edanko/safetech-go/actions/workflows/test.yml)
+[![Go Reference](https://pkg.go.dev/badge/github.com/edanko/safetech-go.svg)](https://pkg.go.dev/github.com/edanko/safetech-go)
+[![Go Version](https://img.shields.io/github/go-mod/go-version/edanko/safetech-go)](https://go.dev/)
+[![License: MIT](https://img.shields.io/github/license/edanko/safetech-go)](LICENSE)
+[![Go Report Card](https://goreportcard.com/badge/github.com/edanko/safetech-go)](https://goreportcard.com/report/github.com/edanko/safetech-go)
 
 ## Features
 
@@ -38,7 +38,17 @@ Vendor documentation (Russian):
 ## Install
 
 ```sh
-go get github.com/edanko/safetech
+go get github.com/edanko/safetech-go
+```
+
+The module is `safetech-go`, but the Go package name is `safetech` — the
+convention for `-go` repositories, since hyphens are not valid in Go
+identifiers. So imports read:
+
+```go
+import "github.com/edanko/safetech-go"
+
+client, err := safetech.New(cfg)
 ```
 
 ## Quick start
@@ -58,7 +68,7 @@ import (
 	"os"
 	"time"
 
-	"github.com/edanko/safetech"
+	"github.com/edanko/safetech-go"
 )
 
 func main() {
@@ -381,7 +391,7 @@ upgrading.
 `Version` defaults to `dev` and can be set when building your binary:
 
 ```sh
-go build -ldflags "-X github.com/edanko/safetech.Version=v1.2.3" ./cmd/yourapp
+go build -ldflags "-X github.com/edanko/safetech-go.Version=v1.2.3" ./cmd/yourapp
 ```
 
 ## License

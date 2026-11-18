@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/edanko/safetech/internal/testutil"
+	"github.com/edanko/safetech-go/internal/testutil"
 )
 
 // FuzzNormalizeCSR checks that malformed certificate requests are always

@@ -12,7 +12,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/edanko/safetech/internal/testutil"
+	"github.com/edanko/safetech-go/internal/testutil"
 )
 
 // Fixtures used by the fake CA.

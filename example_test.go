@@ -9,7 +9,7 @@ import (
 	"time"
 	"uuid"
 
-	"github.com/edanko/safetech"
+	"github.com/edanko/safetech-go"
 )
 
 // newClient is the shared setup used by the examples.

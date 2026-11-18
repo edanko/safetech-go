@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/edanko/safetech/internal/testutil"
+	"github.com/edanko/safetech-go/internal/testutil"
 )
 
 func TestDecodeEnvelope(t *testing.T) {
