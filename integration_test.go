@@ -200,6 +200,22 @@ func TestIntegrationIssueAndRevoke(t *testing.T) {
 	t.Logf("chain: chain=%dB fullchain=%dB root=%dB pkcs7=%dB dnHash=%q",
 		len(cert.Chain), len(cert.FullChain), len(cert.Root), len(cert.PKCS7), cert.DNHash)
 
+	// A certificate must be recoverable from its serial alone.
+	recovered, err := client.GetCertificate(t.Context(), cert.SerialNumber)
+	if err != nil {
+		t.Fatalf("GetCertificate(%s): %v", cert.SerialNumber, err)
+	}
+
+	if !bytes.Equal(recovered.PEM, cert.PEM) {
+		t.Error("GetCertificate returned a different certificate")
+	}
+
+	if recovered.ID != cert.ID {
+		t.Errorf("recovered request id = %v, want %v", recovered.ID, cert.ID)
+	}
+
+	t.Logf("recovered by serial: status=%s bytes=%d", recovered.Status, len(recovered.PEM))
+
 	if err := client.RevokeCertificate(t.Context(), cert.ID); err != nil {
 		t.Fatalf("RevokeCertificate: %v", err)
 	}

@@ -23,9 +23,13 @@ First public release.
   I/O until the first operation.
 - `IssuedCertificate` carrying `ID`, serial number, PEM, template name, status and
   validity window, with `ParsePEM` returning an `*x509.Certificate`.
+- `GetCertificate(ctx, serial)` to read a certificate back by serial number,
+  returning `ErrCertificateNotFound` for an unknown serial and round-tripping
+  the request id so the certificate can still be revoked.
 - Chain material on `IssuedCertificate`: `Chain`, `FullChain`, `Root`, `PKCS7`
   and `DNHash`, so callers can install the full chain and trust anchor without
   a second API call. Absent material is `nil` rather than an error.
+- `IssuedCertificate.TemplateID`, alongside `TemplateName`.
 - Context-first API: `CreateCertificate` and `RevokeCertificate` take a
   `context.Context` as their first argument.
 - `ListTemplates`, returning the certificate templates configured in the CA with

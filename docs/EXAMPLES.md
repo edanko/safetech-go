@@ -86,6 +86,25 @@ if len(cert.Chain) > 0 {
 }
 ```
 
+## Recover a certificate from its serial number
+
+```go
+// Only the serial survived the crash, not the issuance response.
+cert, err := client.GetCertificate(ctx, serial)
+if err != nil {
+	return err
+}
+
+if err := os.WriteFile("cert.pem", cert.PEM, 0o600); err != nil {
+	return err
+}
+
+// cert.ID is the request id, so revocation still works.
+if err := client.RevokeCertificate(ctx, cert.ID); err != nil {
+	return err
+}
+```
+
 ## Revoke a certificate with an explicit reason
 
 ```go

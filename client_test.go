@@ -869,3 +869,154 @@ func TestIssuedCertificateWithoutChainMaterial(t *testing.T) {
 		t.Errorf("DNHash = %q, want empty", cert.DNHash)
 	}
 }
+
+func TestGetCertificate(t *testing.T) {
+	t.Parallel()
+
+	f := newFakeCA(t)
+
+	cert, err := f.newClient(t).GetCertificate(t.Context(), testSerial)
+	if err != nil {
+		t.Fatalf("GetCertificate: %v", err)
+	}
+
+	if want := uuid.MustParse(testRequestID); cert.ID != want {
+		t.Errorf("ID = %v, want %v (from requestId)", cert.ID, want)
+	}
+
+	if cert.SerialNumber != testSerial {
+		t.Errorf("SerialNumber = %q, want %q", cert.SerialNumber, testSerial)
+	}
+
+	if cert.TemplateID != "33333333-3333-4333-8333-333333333333" {
+		t.Errorf("TemplateID = %q, want the fixture template id", cert.TemplateID)
+	}
+
+	if cert.TemplateName != "" {
+		t.Errorf("TemplateName = %q, want it empty for a read-back certificate", cert.TemplateName)
+	}
+
+	if cert.Status != statusActive {
+		t.Errorf("Status = %q, want %q", cert.Status, statusActive)
+	}
+
+	if len(cert.PEM) == 0 || len(cert.FullChain) == 0 || len(cert.Root) == 0 || len(cert.PKCS7) == 0 {
+		t.Errorf("certificate material is incomplete: pem=%d fullchain=%d root=%d pkcs7=%d",
+			len(cert.PEM), len(cert.FullChain), len(cert.Root), len(cert.PKCS7))
+	}
+
+	if cert.Chain == nil {
+		t.Error("Chain = nil, want the chain fixture")
+	}
+
+	if cert.DNHash == "" {
+		t.Error("DNHash is empty")
+	}
+
+	wantNotBefore := time.Date(2026, time.October, 22, 18, 28, 59, 0, time.UTC)
+	if !cert.NotBefore.Equal(wantNotBefore) {
+		t.Errorf("NotBefore = %v, want %v", cert.NotBefore, wantNotBefore)
+	}
+
+	if _, err := cert.ParsePEM(); err != nil {
+		t.Errorf("ParsePEM: %v", err)
+	}
+
+	requests := f.requestsTo(apiPath("/certs/" + testSerial))
+	if len(requests) != 1 {
+		t.Fatalf("certificate requests = %d, want 1", len(requests))
+	}
+
+	if got := requests[0].method; got != http.MethodGet {
+		t.Errorf("method = %q, want GET", got)
+	}
+
+	if got, want := requests[0].header.Get("Authorization"), "Bearer "+testAccessToken; got != want {
+		t.Errorf("Authorization = %q, want %q", got, want)
+	}
+}
+
+func TestGetCertificateNotFound(t *testing.T) {
+	t.Parallel()
+
+	f := newFakeCA(t)
+	f.removeCertificate(testSerial)
+
+	_, err := f.newClient(t).GetCertificate(t.Context(), testSerial)
+	if !errors.Is(err, ErrCertificateNotFound) {
+		t.Fatalf("error = %v, want ErrCertificateNotFound", err)
+	}
+}
+
+func TestGetCertificateRequiresSerial(t *testing.T) {
+	t.Parallel()
+
+	f := newFakeCA(t)
+	client := f.newClient(t)
+
+	for _, serial := range []string{"", "   "} {
+		if _, err := client.GetCertificate(t.Context(), serial); err == nil ||
+			!strings.Contains(err.Error(), "serial number is required") {
+			t.Errorf("GetCertificate(%q) error = %v, want a missing-serial failure", serial, err)
+		}
+	}
+}
+
+func TestGetCertificateHTTPError(t *testing.T) {
+	t.Parallel()
+
+	f := newFakeCA(t)
+	f.setHandler(apiPath("/certs/"+testSerial), func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, "boom", http.StatusInternalServerError)
+	})
+
+	_, err := f.newClient(t).GetCertificate(t.Context(), testSerial)
+	if err == nil {
+		t.Fatal("expected an error")
+	}
+
+	if _, ok := errors.AsType[*HTTPError](err); !ok {
+		t.Errorf("error = %v, want an *HTTPError", err)
+	}
+
+	if errors.Is(err, ErrCertificateNotFound) {
+		t.Error("a 500 must not be reported as ErrCertificateNotFound")
+	}
+}
+
+func TestGetCertificateReflectsServerState(t *testing.T) {
+	t.Parallel()
+
+	const revokedSerial = "0BADF00D"
+
+	f := newFakeCA(t)
+	f.setCertificate(revokedSerial, certPayload{
+		Status:       statusRevoked,
+		SerialNumber: revokedSerial,
+		PEM:          string(testutil.Certificate(t, "revoked.example.com")),
+		NotBefore:    "2026-01-01T00:00:00",
+		NotAfter:     "2026-12-31T23:59:59",
+	})
+
+	cert, err := f.newClient(t).GetCertificate(t.Context(), revokedSerial)
+	if err != nil {
+		t.Fatalf("GetCertificate: %v", err)
+	}
+
+	if cert.Status != statusRevoked {
+		t.Errorf("Status = %q, want %q", cert.Status, statusRevoked)
+	}
+
+	if cert.SerialNumber != revokedSerial {
+		t.Errorf("SerialNumber = %q, want %q", cert.SerialNumber, revokedSerial)
+	}
+
+	if !cert.NotBefore.Before(cert.NotAfter) {
+		t.Errorf("validity = %v..%v, want NotBefore before NotAfter", cert.NotBefore, cert.NotAfter)
+	}
+
+	// The CA reported no request id, so revocation cannot be derived from it.
+	if cert.ID != uuid.Nil() {
+		t.Errorf("ID = %v, want the nil UUID", cert.ID)
+	}
+}

@@ -35,6 +35,7 @@ test installation:
 | Idempotent revocation | `RevokeCertificateWithOptions` with `AllowAlreadyRevoked` returns success for an already revoked certificate. |
 | Parser fuzzing | `FuzzNormalizeCSR`, `FuzzDecodeEnvelope`, `FuzzParseSTCATime`, `FuzzParseRetryAfter`, `FuzzTemplatePayloadDecoding`. |
 | Example tests | `Example` functions compile in `go test`, so the README snippets cannot rot. |
+| Certificate read-back | `GetCertificate(ctx, serial)` closes the stranded-certificate gap: `GET /certs/{serial}` returned PEM, chain and root byte-identical to the issuance response, and its `requestId` round-tripped to the same UUID, so a recovered certificate still revokes. |
 | Coverage | Untested branches closed (discovery/token decode failures, error formatting, URL validation, TLS transport cloning, search pagination bound, waiter cancellation): package coverage 93.7% → 96.7%, with a 90% floor in CI. |
 
 ## Decisions recorded
@@ -75,5 +76,6 @@ the test suite now mirrors:
 | The serial number is lowercase hex without a prefix. | `serialNumber` `03dc`; `PATCH /certs/03dc/change_status` revoked it successfully. |
 | `ST_CA` issuance requires a template whose `enrollmentScenario` is `STANDARD`. | `API_ONLY`/`TOKEN_BASED` templates are rejected with `errorCode` 101 and "for protocol type 'ST_CA' enrollmentScenario must be 'STANDARD'". |
 | An already revoked certificate is reported, not silently accepted. | Second `RevokeCertificate` returns `ErrCertificateRevoked`. |
+| `GET /certs/{serial}` returns the whole certificate object; an unknown serial is a `404` carrying `errorCode` 104. | Recovered certificate matched the issuance response byte for byte and mapped to `ErrCertificateNotFound` when the serial did not exist. |
 | `certificateRequest.certificate` carries the serial number, not a certificate. | Returned `"03e2"` for a successful issuance while `certificateInfo.pem` held the PEM. |
 | `certificateInfo` also carries `fullchain`, `root`, `pkcs7` and `dnHash`. | All surfaced on `IssuedCertificate`. On the test installation `Chain` was `nil` (issued straight from the root), `FullChain` was the leaf alone, `Root` was the self-signed `ST CA Root` valid to 2046, `PKCS7` was a 6.8 kB PEM bundle and `DNHash` was 64 hex characters. |

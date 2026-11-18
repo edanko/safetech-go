@@ -3,6 +3,10 @@
 All automation lives in `.github/workflows/`. Everything runs on GitHub-hosted
 `ubuntu-latest` runners with the Go toolchain required by `go.mod`.
 
+This page describes the pipeline. The manual work around it — repository
+settings, secrets, the first release and production guidance — is in
+[OPERATIONS.md](OPERATIONS.md).
+
 ## Pipelines
 
 | Workflow | Triggers | What it proves |

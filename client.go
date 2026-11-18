@@ -120,6 +120,7 @@ const (
 	pathSearch       = "/certs/search"
 	pathChangeStatus = "/certs/%s/change_status"
 	pathTemplates    = "/templates"
+	pathCertificate  = "/certs/%s"
 
 	defaultNode     = "ST CA Root"
 	defaultClientID = "ca-ui"
@@ -383,6 +384,34 @@ type RevokeOptions struct {
 	AllowAlreadyRevoked bool
 }
 
+// GetCertificate returns the certificate with the given serial number.
+//
+// The serial is the CA-side identifier of a certificate, reported as
+// [IssuedCertificate.SerialNumber]. It is the way back to a certificate whose
+// PEM was not persisted at issuance time. Missing serial numbers return
+// [ErrCertificateNotFound].
+//
+// TemplateName is empty on the returned value, because the CA reports only the
+// template id for certificates that are read back; everything else is populated
+// as at issuance.
+func (c *Client) GetCertificate(ctx context.Context, serial string) (*IssuedCertificate, error) {
+	serial = strings.TrimSpace(serial)
+	if serial == "" {
+		return nil, errors.New("safetech: certificate serial number is required")
+	}
+
+	var payload certPayload
+	if err := c.get(ctx, fmt.Sprintf(pathCertificate, url.PathEscape(serial)), &payload); err != nil {
+		if httpErr, ok := errors.AsType[*HTTPError](err); ok && httpErr.StatusCode == http.StatusNotFound {
+			return nil, fmt.Errorf("safetech: get certificate %s: %w", serial, ErrCertificateNotFound)
+		}
+
+		return nil, fmt.Errorf("safetech: get certificate %s: %w", serial, err)
+	}
+
+	return certFromPayload(payload, "")
+}
+
 // RevokeCertificate revokes the certificate created for the given request id.
 //
 // The API revokes certificates by serial number, so the serial is resolved from
@@ -501,19 +530,31 @@ func pemBytes(value string) []byte {
 
 // certFromIssue converts an issue response into a domain certificate.
 func certFromIssue(payload issuePayload, templateName string) (*IssuedCertificate, error) {
-	info := payload.CertificateInfo
-
 	requestID, err := uuid.Parse(strings.TrimSpace(payload.CertificateRequest.ID))
 	if err != nil {
 		return nil, fmt.Errorf("safetech: parse request id %q: %w", payload.CertificateRequest.ID, err)
 	}
 
+	cert, err := certFromPayload(payload.CertificateInfo, templateName)
+	if err != nil {
+		return nil, err
+	}
+
+	// The issue response identifies the request in certificateRequest; the
+	// certificate endpoints report the same id in certificateInfo.
+	cert.ID = requestID
+
+	return cert, nil
+}
+
+// certFromPayload maps the certificate object shared by the issue and
+// certificate endpoints.
+func certFromPayload(info certPayload, templateName string) (*IssuedCertificate, error) {
 	if strings.TrimSpace(info.PEM) == "" {
-		return nil, errors.New("safetech: issue response contains no certificate")
+		return nil, errors.New("safetech: response contains no certificate")
 	}
 
 	cert := &IssuedCertificate{
-		ID:           requestID,
 		SerialNumber: info.SerialNumber,
 		PEM:          []byte(info.PEM),
 		Chain:        pemBytes(info.Chain),
@@ -522,19 +563,35 @@ func certFromIssue(payload issuePayload, templateName string) (*IssuedCertificat
 		PKCS7:        pemBytes(info.PKCS7),
 		DNHash:       strings.TrimSpace(info.DNHash),
 		TemplateName: templateName,
+		TemplateID:   strings.TrimSpace(info.TemplateID),
 		Status:       info.Status,
 	}
 
+	if requestID := strings.TrimSpace(info.RequestID); requestID != "" {
+		parsed, err := uuid.Parse(requestID)
+		if err != nil {
+			return nil, fmt.Errorf("safetech: parse request id %q: %w", requestID, err)
+		}
+
+		cert.ID = parsed
+	}
+
 	if info.NotBefore != "" {
-		if cert.NotBefore, err = parseSTCATime(info.NotBefore); err != nil {
+		notBefore, err := parseSTCATime(info.NotBefore)
+		if err != nil {
 			return nil, err
 		}
+
+		cert.NotBefore = notBefore
 	}
 
 	if info.NotAfter != "" {
-		if cert.NotAfter, err = parseSTCATime(info.NotAfter); err != nil {
+		notAfter, err := parseSTCATime(info.NotAfter)
+		if err != nil {
 			return nil, err
 		}
+
+		cert.NotAfter = notAfter
 	}
 
 	return cert, nil

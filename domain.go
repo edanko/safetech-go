@@ -38,8 +38,12 @@ type IssuedCertificate struct {
 	// DNHash is the CA-side hash of the certificate distinguished name, in
 	// hexadecimal. The CA uses it to group certificates per subject.
 	DNHash string
-	// TemplateName is the CA template the certificate was issued from.
+	// TemplateName is the CA template the certificate was issued from. It is
+	// empty when the certificate is read back with [Client.GetCertificate],
+	// because the CA reports only the template id there.
 	TemplateName string
+	// TemplateID is the server-side identifier of that template.
+	TemplateID string
 	// Status is the certificate status reported by the CA, for example
 	// "ACTIVE".
 	Status string

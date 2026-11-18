@@ -55,6 +55,7 @@ type fakeCA struct {
 	issueRoot      string
 	issuePKCS7     string
 	issueDNHash    string
+	certificates   map[string]certPayload
 	templates      []templatePayload
 }
 
@@ -87,7 +88,23 @@ func newFakeCAWithTLS(t *testing.T, useTLS bool) *fakeCA {
 		issueRoot:      string(testutil.Certificate(t, "root.example.com")),
 		issuePKCS7:     "-----BEGIN PKCS7-----\nMIIB\n-----END PKCS7-----\n",
 		issueDNHash:    "34d96d7243fa893d303396624d32a3d89d3b52a7c3110cc09cc6f4b849049b59",
-		templates:      templateFixtures(),
+		certificates: map[string]certPayload{
+			testSerial: {
+				Status:       statusActive,
+				SerialNumber: testSerial,
+				PEM:          leafPEM,
+				Chain:        chainPEM,
+				FullChain:    leafPEM + chainPEM,
+				Root:         string(testutil.Certificate(t, "root.example.com")),
+				PKCS7:        "-----BEGIN PKCS7-----\nMIIB\n-----END PKCS7-----\n",
+				DNHash:       "34d96d7243fa893d303396624d32a3d89d3b52a7c3110cc09cc6f4b849049b59",
+				RequestID:    testRequestID,
+				TemplateID:   "33333333-3333-4333-8333-333333333333",
+				NotBefore:    "2026-10-22T18:28:59.00000",
+				NotAfter:     "2027-10-22T18:28:59.00000",
+			},
+		},
+		templates: templateFixtures(),
 	}
 
 	mux := http.NewServeMux()
@@ -96,7 +113,7 @@ func newFakeCAWithTLS(t *testing.T, useTLS bool) *fakeCA {
 	for _, prefix := range []string{apiPath(""), directAPIPath("")} {
 		mux.HandleFunc(prefix+pathIssue, f.serveIssue)
 		mux.HandleFunc(prefix+pathSearch, f.serveSearch)
-		mux.HandleFunc(prefix+"/certs/", f.serveChangeStatus)
+		mux.HandleFunc(prefix+"/certs/", f.serveCerts)
 		mux.HandleFunc(prefix+pathTemplates, f.serveTemplates)
 	}
 
@@ -429,13 +446,64 @@ func (f *fakeCA) serveTemplates(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-func (f *fakeCA) serveChangeStatus(w http.ResponseWriter, r *http.Request) {
+// serveCerts dispatches certificate requests: a PATCH or a /change_status suffix
+// changes the status, anything else reads a certificate by serial.
+func (f *fakeCA) serveCerts(w http.ResponseWriter, r *http.Request) {
 	if handler := f.handler(r.URL.Path); handler != nil {
 		handler(w, r)
 
 		return
 	}
 
+	if strings.HasSuffix(r.URL.Path, "/change_status") {
+		f.serveChangeStatus(w, r)
+
+		return
+	}
+
+	f.serveCertificate(w, r)
+}
+
+// serveCertificate answers GET /certs/{serial}.
+func (f *fakeCA) serveCertificate(w http.ResponseWriter, r *http.Request) {
+	serial := ""
+	if _, after, ok := strings.Cut(r.URL.Path, "/certs/"); ok {
+		serial, _, _ = strings.Cut(after, "/")
+	}
+
+	f.mu.Lock()
+	payload, found := f.certificates[serial]
+	f.mu.Unlock()
+
+	if !found {
+		writeJSON(w, http.StatusNotFound, map[string]any{
+			"errorCode":    104,
+			"errorMessage": "Certificate with serial number " + serial + " not found",
+		})
+
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{"errorCode": 0, "payload": payload})
+}
+
+// setCertificate replaces the certificate the fake CA serves for serial.
+func (f *fakeCA) setCertificate(serial string, payload certPayload) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	f.certificates[serial] = payload
+}
+
+// removeCertificate drops a certificate so the CA reports it as missing.
+func (f *fakeCA) removeCertificate(serial string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	delete(f.certificates, serial)
+}
+
+func (f *fakeCA) serveChangeStatus(w http.ResponseWriter, r *http.Request) {
 	f.mu.Lock()
 	status := f.revokedStatus
 	f.mu.Unlock()

@@ -19,6 +19,8 @@ Vendor documentation (Russian):
   request is sent; invalid requests return `ErrInvalidCSR`.
 - Lists the CA certificate templates, including the ST_CA enrollment settings that
   constrain a request.
+- Reads a certificate back by serial (`GetCertificate`), so an issuance result
+  lost before it was persisted is recoverable.
 - Revokes certificates by the ID returned at issuance, with RFC 5280 revocation reasons.
 - Authenticates against Keycloak with cached, automatically refreshed access tokens.
 - Takes a `context.Context` on every operation, so cancellation and deadlines propagate.
@@ -283,6 +285,31 @@ client, err := safetech.New(safetech.Config{
 
 Set `Retry: safetech.RetryPolicy{Disabled: true}` to attempt everything once.
 
+## Reading a certificate back
+
+`GetCertificate` fetches a certificate by its serial number — the value reported
+as `SerialNumber` at issuance. It is the way back to a certificate whose PEM was
+not persisted, and it returns `ErrCertificateNotFound` for an unknown serial:
+
+```go
+cert, err := client.GetCertificate(ctx, serial)
+if errors.Is(err, safetech.ErrCertificateNotFound) {
+	return err
+}
+
+if err != nil {
+	return err
+}
+
+// The request id round-trips, so the certificate can still be revoked.
+if err := client.RevokeCertificate(ctx, cert.ID); err != nil {
+	return err
+}
+```
+
+Everything is populated as at issuance except `TemplateName`: the CA reports only
+the template id for certificates that are read back, so use `TemplateID` there.
+
 ## Security notes
 
 - `TLSSkipVerify` disables TLS certificate verification. Use it only against
@@ -330,7 +357,8 @@ instead of failing. `TestIntegrationListTemplates` reads the template list, and
 scenario is `STANDARD`.
 
 CI runs unit tests, linters and security scanners; the pipeline layout is
-described in [docs/CI.md](docs/CI.md).
+described in [docs/CI.md](docs/CI.md), and the repository settings, secrets and
+first-release steps are in [docs/OPERATIONS.md](docs/OPERATIONS.md).
 
 ## Documentation
 
@@ -340,6 +368,7 @@ described in [docs/CI.md](docs/CI.md).
 | Installation, configuration and administration guides | Same documentation portal (`Установка и настройка`, `Руководства`) |
 | CA CLI usage | Same portal, `CA CLI` |
 | HashiCorp Vault integration | Same portal, `Интеграция SafeTech CA с HashiCorp Vault` |
+| Repository operations, go-live and release runbook | [docs/OPERATIONS.md](docs/OPERATIONS.md) |
 
 The vendor documentation is written in Russian. The linked API article covers
 authentication, certificate requests, certificate templates, attributes and
